@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "main",
+    "cli",
+    "core",
+    "consensus",
+    "network",
+    "storage",
+    "utils",
+]
