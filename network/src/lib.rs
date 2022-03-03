@@ -1,5 +1,7 @@
 pub mod peer;
 pub mod transport;
+pub mod discovery;
+pub mod gossipsub;
 
 #[cfg(test)]
 mod tests {
