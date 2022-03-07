@@ -1,8 +1,8 @@
 use std::{error::Error, sync::Arc};
 
-use async_std::sync::Mutex;
 use futures::StreamExt;
 use libp2p::{mdns::{Mdns, MdnsConfig, MdnsEvent}, Swarm, PeerId, swarm::SwarmEvent, identity::Keypair, Multiaddr, multiaddr::Protocol};
+use tokio::sync::Mutex;
 
 use crate::{peer::Peer, transport::CMTTransport};
 

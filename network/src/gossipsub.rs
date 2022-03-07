@@ -2,11 +2,11 @@ use std::{
     collections::hash_map::DefaultHasher,
     error::Error,
     hash::{Hash, Hasher},
-    time::Duration, sync::Arc, thread,
+    sync::Arc,
+    time::Duration,
 };
 
-use async_std::{io::{self, prelude::BufReadExt}, sync::Mutex};
-use futures::{select, StreamExt};
+use futures::StreamExt;
 use libp2p::{
     gossipsub::{
         Gossipsub, GossipsubConfigBuilder, GossipsubEvent, GossipsubMessage, IdentTopic,
@@ -15,6 +15,10 @@ use libp2p::{
     identity::Keypair,
     swarm::SwarmEvent,
     Multiaddr, PeerId, Swarm,
+};
+use tokio::{
+    io::{self, AsyncBufReadExt},
+    sync::Mutex,
 };
 
 use crate::transport::CMTTransport;
@@ -63,7 +67,6 @@ impl GossipsubSwarm {
 
             println!("Build Other peers:{:?}", other_peers);
 
-
             //let peers = other_peers.clone();
             for (_, peer_id) in other_peers {
                 gossipsub.add_explicit_peer(peer_id);
@@ -87,7 +90,7 @@ impl GossipsubSwarm {
         other_peers: Arc<Mutex<Vec<(Multiaddr, PeerId)>>>,
     ) -> Result<(), Box<dyn Error>> {
         //thread::sleep(Duration::from_secs(5));
-        async_std::task::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
 
         println!("[Gossipsub_Start]: {:?}", other_peers);
         let peers: Vec<(Multiaddr, PeerId)> = other_peers.lock().await.clone();
@@ -111,19 +114,19 @@ impl GossipsubSwarm {
         }
 
         // Read full lines from stdin
-        let mut stdin = io::BufReader::new(io::stdin()).lines().fuse();
+        let mut stdin = io::BufReader::new(io::stdin()).lines();
 
         //let topic = IdentTopic::new("consensus");
 
         // Kick it off
         loop {
-            select! {
-                line = stdin.select_next_some() => {
-                    //println!("{:?}", gossipsub_swarm.behaviour());
-                    
+            tokio::select! {
+                line = stdin.next_line() => {
+                    let line = line?.expect("stdin closed");
+
                     if let Err(e) = gossipsub_swarm
                         .behaviour_mut()
-                        .publish(topic.clone(), line.expect("Stdin not to close").as_bytes())
+                        .publish(topic.clone(), line)
                     {
                         println!("Publish error: {:?}", e);
                     }
