@@ -1,16 +1,9 @@
-use std::{error::Error, sync::Arc, thread, time::Duration};
-
-use async_std::sync::Mutex;
-use futures::{join, executor::block_on, future::join};
-use libp2p::{
-    identity::Keypair,
-    Multiaddr, PeerId, multiaddr::Protocol,
-};
+use std::{error::Error, sync::Arc};
 
 use crate::{discovery::MdnsSwarm, gossipsub::GossipsubSwarm};
-
-
-
+use futures::join;
+use libp2p::{identity::Keypair, Multiaddr, PeerId};
+use tokio::sync::Mutex;
 
 pub struct Peer {
     pub id: PeerId,
@@ -66,18 +59,20 @@ impl Peer {
     // }
 }
 
-pub async fn run(peer: &mut Peer, mdns_swarm: &mut MdnsSwarm, gossipsub_swarm: &mut GossipsubSwarm) -> (Result<(), Box<dyn Error>>, Result<(), Box<dyn Error>>) {
-    
+pub async fn run(
+    peer: &mut Peer,
+    mdns_swarm: &mut MdnsSwarm,
+    gossipsub_swarm: &mut GossipsubSwarm,
+) -> (Result<(), Box<dyn Error>>, Result<(), Box<dyn Error>>) {
     let keys = peer.keys.clone();
     //let addr = peer.address.clone();
     let peer_id = peer.id.clone();
 
-    let addr = "/ip4/10.162.182.172/tcp/51103".parse().unwrap();
-    
+    let addr = "/ip4/10.162.133.179/tcp/51102".parse().unwrap();
+
     let other_peers: Arc<Mutex<Vec<(Multiaddr, PeerId)>>> = Arc::new(Mutex::new(vec![]));
     //let d_peers = Arc::clone(&other_peers);
     let g_peers = Arc::clone(&other_peers);
-
 
     let discovery_future = mdns_swarm.start(peer, other_peers);
 
@@ -92,7 +87,7 @@ pub async fn run(peer: &mut Peer, mdns_swarm: &mut MdnsSwarm, gossipsub_swarm: &
     // }
 
     //let mut gossipsub_swarm = GossipsubSwarm::new(&keys);
-    
+
     let gossipsub_future = gossipsub_swarm.gossipsub_start(addr, &peer_id, &keys, g_peers);
 
     // let r1 = discovery_future.await;
