@@ -9,3 +9,6 @@ edition = "2021"
 network = { path = "../network"}
 futures = "0.3.21"
 tokio = { version = "1.17.0", features = ["full"] }
+
+core = { path = "../core"}
+async-std = "1.10.0"

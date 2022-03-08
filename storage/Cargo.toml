@@ -6,3 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+utils = { path = "../utils"}
+leveldb = "0.8.6"
+db-key = "0.0.5"
+bigint = "4.4.3"
