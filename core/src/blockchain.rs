@@ -20,12 +20,7 @@ impl BlockChain {
         BlockChainDb::write_db(database, key, &value);
     }
 
-    fn write_tail_to_db(mut database: &mut Database<BlockKey>, block: &Block) {
-        let key = BlockKey{val: U256::from("tail".as_bytes())};
-        let value = coder::block_serialize(&(block.hash));
-        BlockChainDb::write_db(&mut database, key, &value);
-    }
-    
+        
     pub fn add_block(&mut self, transaction: String) {
         println!("++++++++ 当前链长度： ==== {}", self.blocks.len());
         let pre_block = &self.blocks[self.blocks.len() - 1];
