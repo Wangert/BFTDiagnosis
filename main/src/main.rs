@@ -1,39 +1,39 @@
-use network::{
-    discovery::MdnsSwarm,
-    gossipsub::GossipsubSwarm,
-    peer::{run, Peer},
+use cli::args::Args;
+use network::peer::Peer;
+use structopt::StructOpt;
+use tokio::{
+    io::{self, AsyncBufReadExt},
+    sync::mpsc,
 };
-use core::blockchain;
-use std::thread;
-use std::time::Duration;
+use utils::parse::into_ip4_tcp_multiaddr;
 
 #[tokio::main]
 async fn main() {
-    // let mut local_peer = Peer::new("/ip4/10.162.133.179/tcp/51002".parse().unwrap(), 31001);
-    // let keys = local_peer.get_keys().clone();
-    // let mut mdns_swarm = MdnsSwarm::new(&keys);
+    let args: Args = Args::from_args();
+    println!("{:?}", &args);
 
-    // let mut gossipsub_swarm = GossipsubSwarm::new(&keys);
+    let mdns_addr = into_ip4_tcp_multiaddr(args.mdns_addr.as_str(), args.mdns_port);
+    let gossipsub_addr = into_ip4_tcp_multiaddr(args.gossipsub_addr.as_str(), args.gossipsub_port);
 
-    // let (f1, f2) = run(&mut local_peer, &mut mdns_swarm, &mut gossipsub_swarm).await;
+    let mut local_peer = Peer::new(mdns_addr, gossipsub_addr);
 
-    // match (f1, f2) {
-    //     (Ok(_), Ok(_)) => println!("Peer runing successful!"),
-    //     _ => panic!("Peer running error!"),
-    // }
-    //run(&mut local_peer);
+    let (tx, mut rx) = mpsc::channel::<String>(5);
+    tokio::spawn(async move {
+        // Read full lines from stdin
+        let mut stdin = io::BufReader::new(io::stdin()).lines();
 
-    //println!("Hello, world!");
-    let mut bc = blockchain::BlockChain::new_blockchain();
+        loop {
+            match stdin.next_line().await {
+                Ok(Some(s)) => {
+                    println!("Input msg:{}", &s);
+                    Peer::broadcast_message(&tx, &s).await;
+                }
+                _ => {
+                    eprintln!("Input message again!");
+                }
+            }
+        }
+    });
 
-    println!("第一轮共识进行中。。。。。。。。。");
-    thread::sleep(Duration::from_secs(5));
-    bc.add_block(String::from("aa"));
-
-    println!("");
-    println!("第二轮共识进行中。。。。。。。。。");
-    thread::sleep(Duration::from_secs(5));
-    bc.add_block("bb".to_string());
-
-    
+    local_peer.run(&mut rx).await;
 }

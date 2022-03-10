@@ -1,32 +1,47 @@
-use std::{error::Error, sync::Arc};
-
+use std::sync::Arc;
 use crate::{discovery::MdnsSwarm, gossipsub::GossipsubSwarm};
-use futures::join;
-use libp2p::{identity::Keypair, Multiaddr, PeerId};
-use tokio::sync::Mutex;
+use futures::StreamExt;
+use libp2p::{
+    gossipsub::{GossipsubEvent, IdentTopic},
+    identity::Keypair,
+    swarm::SwarmEvent,
+    Multiaddr, PeerId,
+};
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    Mutex,
+};
 
 pub struct Peer {
     pub id: PeerId,
-    pub address: Multiaddr,
-    pub gossipsub_port: u16,
+    pub mdns_addr: Multiaddr,
+    pub gossipsub_addr: Multiaddr,
     pub addresses: Vec<String>,
     keys: Box<Keypair>,
+
+    pub mdns_swarm: MdnsSwarm,
+    //pub gossipsub_swarm: Arc<Mutex<GossipsubSwarm>>,
+    pub gossipsub_swarm: GossipsubSwarm,
 
     // other peers' address and peerid
     pub other_peers_info: Box<Vec<(Multiaddr, PeerId)>>,
 }
 
 impl Peer {
-    pub fn new(address: Multiaddr, g_port: u16) -> Peer {
+    pub fn new(mdns_addr: Multiaddr, gossipsub_addr: Multiaddr) -> Peer {
         // Create a random PeerID
         let keys = Keypair::generate_ed25519();
         let peer_id = PeerId::from(keys.public());
 
         Peer {
             id: peer_id,
-            address,
-            gossipsub_port: g_port,
+            mdns_addr,
+            gossipsub_addr,
             addresses: vec![],
+
+            mdns_swarm: MdnsSwarm::new(&keys),
+            gossipsub_swarm: GossipsubSwarm::new(&keys),
+
             keys: Box::new(keys),
             other_peers_info: Box::new(vec![]),
         }
@@ -37,62 +52,94 @@ impl Peer {
     }
 
     // Set an address
-    pub fn set_address(&mut self, addresses: &Vec<String>) {
-        self.addresses = addresses.to_vec();
+    pub fn set_address(&mut self, addr: Multiaddr) {
+        self.mdns_addr = addr;
     }
 
-    // pub async fn run(&mut self) -> (Result<(), Box<dyn Error>>, Result<(), Box<dyn Error>>) {
-    //     let addrs: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().unwrap();
-    //     // let new_ip = Ipv4Addr::new(127, 0, 0, 1);
-    //     // addrs.push(Protocol::Ip4(new_ip));
-    //     let discovery_future = self.discovery_start(addrs.clone());
-    //     // let discovery_start_result = block_on(discovery_future);
-    //     // match discovery_start_result {
-    //     //     Ok(_) => println!("peer runing successful"),
-    //     //     Err(e) => panic!("{:?}", e),
-    //     // }
+    pub fn set_gossipsub_addr(&mut self, addr: Multiaddr) {
+        self.gossipsub_addr = addr;
+    }
 
-    //     self.build_gossipsub_swarm();
+    pub async fn mdns_start(&mut self, other_peers: Arc<Mutex<Vec<(Multiaddr, PeerId)>>>) {
+        let address = self.mdns_addr.clone();
+        let peer_id = &self.id;
 
-    //     let gossipsub_future = self.gossipsub_start(addrs.clone());
-    //     join!(discovery_future, gossipsub_future)
-    // }
-}
+        let r = self.mdns_swarm.start(address, peer_id, other_peers).await;
+        match r {
+            Ok(_) => {}
+            Err(e) => eprintln!("[mdns_swarm](start failed):{:?}", e),
+        }
+    }
 
-pub async fn run(
-    peer: &mut Peer,
-    mdns_swarm: &mut MdnsSwarm,
-    gossipsub_swarm: &mut GossipsubSwarm,
-) -> (Result<(), Box<dyn Error>>, Result<(), Box<dyn Error>>) {
-    let keys = peer.keys.clone();
-    //let addr = peer.address.clone();
-    let peer_id = peer.id.clone();
+    pub async fn gossipsub_start(&mut self, other_peers: Arc<Mutex<Vec<(Multiaddr, PeerId)>>>) {
+        let address = self.gossipsub_addr.clone();
+        let peer_id = &self.id;
+        let peer_keys = &self.keys;
 
-    let addr = "/ip4/10.162.133.179/tcp/51102".parse().unwrap();
+        let r = self
+            .gossipsub_swarm
+            .start_listen(address, peer_id, peer_keys, other_peers)
+            .await;
+        match r {
+            Ok(_) => {}
+            Err(e) => eprintln!("[gossipsub_swarm](start failed):{:?}", e),
+        }
+    }
 
-    let other_peers: Arc<Mutex<Vec<(Multiaddr, PeerId)>>> = Arc::new(Mutex::new(vec![]));
-    //let d_peers = Arc::clone(&other_peers);
-    let g_peers = Arc::clone(&other_peers);
+    pub async fn message_handler_start(&mut self, rx: &mut Receiver<String>) {
+        let swarm = if let Some(s) = &mut self.gossipsub_swarm.swarm {
+            s
+        } else {
+            panic!("【network_peer】: Not build gossipsub swarm")
+        };
+        // Kick it off
+        loop {
+            tokio::select! {
+                Some(msg) = rx.recv() => {
+                    let topic = IdentTopic::new("consensus");
+                    if let Err(e) = swarm.behaviour_mut().publish(topic.clone(), msg) {
+                        eprintln!("Publish message error:{:?}", e);
+                    }
+                },
+                event = swarm.select_next_some() => match event {
+                    SwarmEvent::Behaviour(GossipsubEvent::Message {
+                        propagation_source: peer_id,
+                        message_id: id,
+                        message,
+                    }) => println!(
+                        "Got message: {} with id: {} from peer: {:?}",
+                        String::from_utf8_lossy(&message.data),
+                        id,
+                        peer_id
+                    ),
+                    SwarmEvent::NewListenAddr { address, .. } => {
+                        println!("Listening on {:?}", address);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 
-    let discovery_future = mdns_swarm.start(peer, other_peers);
+    pub async fn broadcast_message(tx: &Sender<String>, msg: &str) {
+        tx.send(msg.to_string()).await.unwrap();
+    }
 
-    //thread::sleep(Duration::from_secs(5));
-    //let other_peers = peer.other_peers_info.clone();
-    //println!("Run Other peers: {:?}", other_peers);
+    pub async fn run(&mut self, rx: &mut Receiver<String>) {
+        let keys = self.keys.clone();
+        let mut mdns_swarm = MdnsSwarm::new(&keys);
 
-    // let discovery_start_result = block_on(discovery_future);
-    // match discovery_start_result {
-    //     Ok(_) => println!("Peer runing successful!"),
-    //     Err(e) => panic!("{:?}", e),
-    // }
+        let mdns_addr = self.mdns_addr.clone();
+        let peer_id = self.id.clone();
 
-    //let mut gossipsub_swarm = GossipsubSwarm::new(&keys);
+        let other_peers: Arc<Mutex<Vec<(Multiaddr, PeerId)>>> = Arc::new(Mutex::new(vec![]));
+        let g_peers = Arc::clone(&other_peers);
 
-    let gossipsub_future = gossipsub_swarm.gossipsub_start(addr, &peer_id, &keys, g_peers);
+        tokio::spawn(async move {
+            let _ = mdns_swarm.start(mdns_addr, &peer_id, other_peers).await;
+        });
 
-    // let r1 = discovery_future.await;
-    // let r2 = gossipsub_future.await;
-
-    join!(discovery_future, gossipsub_future)
-    // (r1, r2)
+        self.gossipsub_start(g_peers).await;
+        self.message_handler_start(rx).await;
+    }
 }
