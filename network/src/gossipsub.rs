@@ -5,22 +5,15 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-
-use futures::StreamExt;
 use libp2p::{
     gossipsub::{
-        Gossipsub, GossipsubConfigBuilder, GossipsubEvent, GossipsubMessage, IdentTopic,
-        MessageAuthenticity, MessageId,
+        Gossipsub, GossipsubConfigBuilder, GossipsubMessage, IdentTopic, MessageAuthenticity,
+        MessageId,
     },
     identity::Keypair,
-    swarm::SwarmEvent,
     Multiaddr, PeerId, Swarm,
 };
-use tokio::{
-    io::{self, AsyncBufReadExt},
-    sync::Mutex,
-};
-
+use tokio::sync::Mutex;
 use crate::transport::CMTTransport;
 
 pub struct GossipsubSwarm {
@@ -42,7 +35,7 @@ impl GossipsubSwarm {
         peer_id: &PeerId,
         peer_keys: &Keypair,
         other_peers: &Vec<(Multiaddr, PeerId)>,
-    ) -> IdentTopic {
+    ) {
         let topic = IdentTopic::new("consensus");
 
         let swarm = {
@@ -78,76 +71,40 @@ impl GossipsubSwarm {
 
         let op_swarm = Some(Box::new(swarm));
         self.swarm = op_swarm;
-
-        topic
     }
 
-    pub async fn gossipsub_start(
+    pub async fn start_listen(
         &mut self,
         address: Multiaddr,
         peer_id: &PeerId,
         peer_keys: &Keypair,
         other_peers: Arc<Mutex<Vec<(Multiaddr, PeerId)>>>,
     ) -> Result<(), Box<dyn Error>> {
-        //thread::sleep(Duration::from_secs(5));
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
-        println!("[Gossipsub_Start]: {:?}", other_peers);
+        //println!("[Gossipsub_Start]: {:?}", other_peers);
         let peers: Vec<(Multiaddr, PeerId)> = other_peers.lock().await.clone();
-        let topic = self.build_gossipsub_swarm(peer_id, peer_keys, &peers);
+
+        // build gossipsub_swarm
+        self.build_gossipsub_swarm(peer_id, peer_keys, &peers);
+
         let gossipsub_swarm = if let Some(s) = &mut self.swarm {
             s
         } else {
             panic!("【network_peer】: Not build gossipsub swarm")
         };
 
+        // start gossipsub listen
         gossipsub_swarm.listen_on(address)?;
 
-        //let peers_2 = Arc::clone(&other_peers);
-        // connect other peer
         for (addr, _) in peers {
-            println!("Other Multiaddr:{:?}", addr);
+            println!("【Other peer multiaddr:{:?}】", addr);
             match gossipsub_swarm.dial(addr.clone()) {
-                Ok(_) => println!("Dialed {:?}", addr),
+                Ok(_) => println!("【Dialed {:?}】", addr),
                 Err(e) => println!("Dial {:?} failed: {:?}", addr, e),
             }
         }
 
-        // Read full lines from stdin
-        let mut stdin = io::BufReader::new(io::stdin()).lines();
-
-        //let topic = IdentTopic::new("consensus");
-
-        // Kick it off
-        loop {
-            tokio::select! {
-                line = stdin.next_line() => {
-                    let line = line?.expect("stdin closed");
-
-                    if let Err(e) = gossipsub_swarm
-                        .behaviour_mut()
-                        .publish(topic.clone(), line)
-                    {
-                        println!("Publish error: {:?}", e);
-                    }
-                },
-                event = gossipsub_swarm.select_next_some() => match event {
-                    SwarmEvent::Behaviour(GossipsubEvent::Message {
-                        propagation_source: peer_id,
-                        message_id: id,
-                        message,
-                    }) => println!(
-                        "Got message: {} with id: {} from peer: {:?}",
-                        String::from_utf8_lossy(&message.data),
-                        id,
-                        peer_id
-                    ),
-                    SwarmEvent::NewListenAddr { address, .. } => {
-                        println!("Listening on {:?}", address);
-                    }
-                    _ => {}
-                }
-            }
-        }
+        Ok(())
     }
 }

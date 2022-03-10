@@ -7,5 +7,9 @@ edition = "2021"
 
 [dependencies]
 network = { path = "../network"}
+cli = { path = "../cli" }
+utils = { path = "../utils" }
 futures = "0.3.21"
 tokio = { version = "1.17.0", features = ["full"] }
+structopt = "0.3.26"
+libp2p = "0.43.0"

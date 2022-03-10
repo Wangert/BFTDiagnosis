@@ -16,7 +16,13 @@ pub fn generate_keypair_set(t: usize, n: usize) -> ThresholdSigKeys {
     let sk_set = SecretKeySet::random(t, &mut rng);
     let pk_set = sk_set.public_keys();
     let sk_and_pk_shares: Vec<_> = (0..n)
-        .map(|i| (i as u64, sk_set.secret_key_share(i), pk_set.public_key_share(i)))
+        .map(|i| {
+            (
+                i as u64,
+                sk_set.secret_key_share(i),
+                pk_set.public_key_share(i),
+            )
+        })
         .collect();
 
     // for (sks, pks) in &sk_and_pk_shares {
@@ -74,7 +80,10 @@ mod threshold_sig_tests {
 
         let n = nodes.clone();
 
-        let mut sigs: HashMap<_, _> = n.into_iter().map(|(i, sk, _)| (i, sign(&sk, msg))).collect();
+        let mut sigs: HashMap<_, _> = n
+            .into_iter()
+            .map(|(i, sk, _)| (i, sign(&sk, msg)))
+            .collect();
 
         // let mut sigs: BTreeMap<_, _> = n
         //     .into_iter()
@@ -84,8 +93,6 @@ mod threshold_sig_tests {
         // sigs.insert(1, sign(&node_2_keys.0, msg));
         // sigs.insert(3, sign(&node_3_keys.0, msg));
         // sigs.insert(4, sign(&node_4_keys.0, msg));
-
-
 
         println!("=============Partial Verification===========");
 
@@ -103,11 +110,10 @@ mod threshold_sig_tests {
         sigs.remove(&7);
         sigs.remove(&0);
         sigs.remove(&3);
-        // sigs.remove(&6);
+        sigs.remove(&6);
         for (i, sig) in &sigs {
             println!("{}|sig:[{:?}]|", i, &sig);
         }
-        
 
         let com_sig = combine_partial_signatures(&t_sig_keys.pk_set, &sigs);
         println!("Combined Signature: [{:?}]", &com_sig);
