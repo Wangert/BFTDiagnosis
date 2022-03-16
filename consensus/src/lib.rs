@@ -1,3 +1,5 @@
+pub mod pbft;
+
 #[cfg(test)]
 mod tests {
     #[test]

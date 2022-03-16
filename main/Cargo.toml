@@ -9,8 +9,10 @@ edition = "2021"
 network = { path = "../network"}
 cli = { path = "../cli" }
 utils = { path = "../utils" }
+consensus = { path = "../consensus" }
 futures = "0.3.21"
 tokio = { version = "1.17.0", features = ["full"] }
+chrono = "0.4.19"
 
 structopt = "0.3.26"
 libp2p = "0.43.0"
