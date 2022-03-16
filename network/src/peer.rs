@@ -11,6 +11,7 @@ use tokio::sync::{
     mpsc::{Receiver, Sender},
     Mutex,
 };
+use utils::coder::deserialize_for_bytes;
 
 pub struct Peer {
     pub id: PeerId,
@@ -106,12 +107,9 @@ impl Peer {
                         propagation_source: peer_id,
                         message_id: id,
                         message,
-                    }) => println!(
-                        "Got message: {} with id: {} from peer: {:?}",
-                        String::from_utf8_lossy(&message.data),
-                        id,
-                        peer_id
-                    ),
+                    }) => { 
+                        println!("Got message: {} with id: {} from peer: {:?}", String::from_utf8_lossy(&message.data), id, peer_id);
+                    }
                     SwarmEvent::NewListenAddr { address, .. } => {
                         println!("Listening on {:?}", address);
                     }
@@ -125,7 +123,7 @@ impl Peer {
         tx.send(msg.to_string()).await.unwrap();
     }
 
-    pub async fn run(&mut self, rx: &mut Receiver<String>) {
+    pub async fn run(&mut self) {
         let keys = self.keys.clone();
         let mut mdns_swarm = MdnsSwarm::new(&keys);
 
@@ -140,6 +138,6 @@ impl Peer {
         });
 
         self.gossipsub_start(g_peers).await;
-        self.message_handler_start(rx).await;
+        //self.message_handler_start(rx).await;
     }
 }
