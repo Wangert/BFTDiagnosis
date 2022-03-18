@@ -60,12 +60,12 @@ impl MdnsSwarm {
             match discovery_swarm.select_next_some().await {
                 SwarmEvent::Behaviour(MdnsEvent::Discovered(peers)) => {
                     for l in discovery_swarm.listeners() {
-                        println!("====================================");
+                        //println!("===========================================================");
                         println!("【Mdns listening on: {:?}】", l);
                     }
 
                     for (peer_id, addr) in peers {
-                        println!("====================================");
+                        //println!("===========================================================");
                         println!("【Discovered:{} {}】", peer_id, addr);
                         //peer.other_peers_info.push((addr, peer_id));
                         let mut g_addr = addr.clone();
@@ -78,8 +78,8 @@ impl MdnsSwarm {
                         g_addr.push(g_port);
                         other_peers.lock().await.push((g_addr, peer_id));
 
-                        println!("====================================");
-                        println!("【Other_peers_info: {:?}】", other_peers);
+                        println!("========================【Other_peers_info】=============================");
+                        println!("{:?}", other_peers);
                     }
                 }
                 SwarmEvent::Behaviour(MdnsEvent::Expired(expired)) => {

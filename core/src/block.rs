@@ -22,7 +22,7 @@ impl Block {
         let transactions = coder::block_serialize(&transaction);
         let timestamp = Utc::now().timestamp();
         let mut transaction_hash: [u8; 32] = [0; 32];
-        coder::get_hash(&transactions[..], &mut transaction_hash);
+        coder::get_hash_u8_vec(&transactions[..], &mut transaction_hash);
         let header = BlockHeader {
             timestamp,
             transaction_hash,
