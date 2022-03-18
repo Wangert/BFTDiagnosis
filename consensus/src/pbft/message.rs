@@ -1,9 +1,9 @@
 
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, de::value::StrDeserializer};
 use threshold_crypto::Signature;
 
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum MessageType {
     Request(Request),
     PrePrepare(PrePrepare),
@@ -18,7 +18,7 @@ pub struct Message {
     pub msg_type: MessageType,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Request {
     pub operation: String,
     pub timestamp: String,
@@ -26,50 +26,49 @@ pub struct Request {
     pub signature: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PrePrepare {
     pub view: u64,
     pub number: u64,
-    pub m_hash: Vec<u8>,
+    pub m_hash: String,
     pub m: Vec<u8>,
     pub signature: String,
-    pub peer_id: String,
-    //pub from_peer_id: String,
+    pub from_peer_id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Prepare {
     pub view: u64,
     pub number: u64,
-    pub m_hash: Vec<u8>,
+    pub m_hash: String,
     pub from_peer_id: String,
-    pub signature: Signature,
+    pub signature: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Commit {
     pub view: u64,
     pub number: u64,
-    pub m_hash: Vec<u8>,
+    pub m_hash: String,
     pub from_peer_id: String,
-    pub signature: Signature,
+    pub signature: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Reply {
     pub client_addr: String,
-    pub timestamp: i64,
+    pub timestamp: String,
     pub view: u64,
     pub number: u64,
     pub from_peer_id: String,
-    pub signature: Signature,
+    pub signature: String,
     pub result: Vec<u8>,
 }
 
 
 #[cfg(test)]
 mod message_tests {
-    use utils::coder;
+    use utils::coder::{self, get_hash_str};
 
     use crate::pbft::message::{Message, MessageType, Request};
     use chrono::prelude::*;
@@ -79,15 +78,14 @@ mod message_tests {
     #[test]
     fn message_serialize_works() {
         let value = vec!['y' as u8];
-        let mut out = vec![];
-        coder::get_hash(&value, &mut out);
+        let m_hash = get_hash_str(&value);
         let preprepare = PrePrepare {
             view: 1,
             number: 1,
-            m_hash: out,
+            m_hash,
             m: value,
-            peer_id: String::from(""),
             signature: String::from("signature"),
+            from_peer_id: String::from(""),
         };
 
         let msg = Message {

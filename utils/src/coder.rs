@@ -32,8 +32,14 @@ where
     seialized
 }
 
-pub fn get_hash(value: &[u8], mut out: &mut [u8]) {
+pub fn get_hash_u8_vec(value: &[u8], mut out: &mut [u8]) {
     let mut hasher = Sha3::sha3_256();
     hasher.input(value);
     hasher.result(&mut out);
+}
+
+pub fn get_hash_str(value: &[u8]) -> String {
+    let mut hasher = Sha3::sha3_256();
+    hasher.input(value);
+    hasher.result_str()
 }

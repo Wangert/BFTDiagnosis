@@ -14,20 +14,16 @@ use super::{
 };
 
 pub struct Node {
+    pub id: String,
     pub network_peer: Box<Peer>,
-    // pub state: State,
-    // pub local_logs: Box<LocalLogs>,
-    // pub broadcast_tx: Sender<String>,
-    // pub broadcast_rx: Receiver<String>,
-    // pub message_tx: Sender<String>,
-    // pub message_rx: Receiver<String>,
     pub executor: Box<Executor>,
 }
 
 impl Node {
     pub fn new(peer: Box<Peer>) -> Node {
-        let executor = Executor::new(&peer.id.to_base58());
+        let executor = Executor::new();
         Node {
+            id: peer.id.to_string(),
             network_peer: peer,
             executor: Box::new(executor),
         }
@@ -59,7 +55,7 @@ impl Node {
                         message_id: id,
                         message,
                     }) => {
-                        println!("Got message: {} with id: {} from peer: {:?}", String::from_utf8_lossy(&message.data), id, peer_id);
+                        println!("Got message: {} with id: {} from peer: {:?}", String::from_utf8_lossy(&message.data), id, &peer_id);
                         let msg: Message = coder::deserialize_for_bytes(&message.data);
                         println!("Gossip Deserialized Message: {:?}", &msg);
 
@@ -68,7 +64,7 @@ impl Node {
                         //     eprintln!("Send message_tx error:{:?}", e);
                         // };
 
-                        self.executor.pbft_message_handler(&message.data).await;
+                        self.executor.pbft_message_handler(&peer_id.to_string(), &message.data).await;
                         //self.pbft_message_handler(std::str::from_utf8(&message.data).unwrap());
                     }
                     SwarmEvent::NewListenAddr { address, .. } => {

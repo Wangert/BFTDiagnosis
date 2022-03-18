@@ -41,7 +41,15 @@ impl GossipsubSwarm {
         let swarm = {
             let message_id_fn = |message: &GossipsubMessage| {
                 let mut s = DefaultHasher::new();
-                message.data.hash(&mut s);
+                let mut msg_hash_vec = if let Some(peer_id) = message.source {
+                    peer_id.to_bytes()
+                } else {
+                    vec![]
+                };
+
+                let mut data = message.data.clone();
+                msg_hash_vec.append(&mut data);
+                msg_hash_vec.hash(&mut s);
                 MessageId::from(s.finish().to_string())
             };
 
@@ -80,7 +88,7 @@ impl GossipsubSwarm {
         peer_keys: &Keypair,
         other_peers: Arc<Mutex<Vec<(Multiaddr, PeerId)>>>,
     ) -> Result<(), Box<dyn Error>> {
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(4)).await;
 
         //println!("[Gossipsub_Start]: {:?}", other_peers);
         let peers: Vec<(Multiaddr, PeerId)> = other_peers.lock().await.clone();
@@ -98,7 +106,6 @@ impl GossipsubSwarm {
         gossipsub_swarm.listen_on(address)?;
 
         for (addr, _) in peers {
-            println!("【Other peer multiaddr:{:?}】", addr);
             match gossipsub_swarm.dial(addr.clone()) {
                 Ok(_) => println!("【Dialed {:?}】", addr),
                 Err(e) => println!("Dial {:?} failed: {:?}", addr, e),
