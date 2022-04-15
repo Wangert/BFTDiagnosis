@@ -114,4 +114,15 @@ impl GossipsubSwarm {
 
         Ok(())
     }
+
+    // pub fn send_message(&mut self) {
+    //     let gossipsub_swarm = if let Some(s) = &mut self.swarm {
+    //         s
+    //     } else {
+    //         panic!("【network_peer】: Not build gossipsub swarm")
+    //     };
+
+    //     let g = gossipsub_swarm.behaviour_mut();
+    //     g.report_message_validation_result(msg_id, propagation_source, acceptance)
+    // }
 }

@@ -91,4 +91,12 @@ impl LocalLogs {
             Box::new(vec![])
         }
     }
+
+    pub fn get_local_messages_count_by_hash(&self, hash: &str) -> usize {
+        if let Some(msg_vec) = self.messages.get(&hash.to_string()) {
+            msg_vec.len()
+        } else {
+            0
+        }
+    }
 }

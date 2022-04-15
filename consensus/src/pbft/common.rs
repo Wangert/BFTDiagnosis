@@ -8,6 +8,8 @@ pub const PREPARE_PREFIX: u8 = 2;
 pub const COMMIT_PREFIX: u8 = 3;
 pub const REPLY_PREFIX: u8 = 4;
 
+pub const WATER_LEVEL_DIFFERENCE: u64 = 50;
+
 pub fn get_message_key(msg_type: MessageType) -> String {
     match msg_type {
         MessageType::Request(request) => {

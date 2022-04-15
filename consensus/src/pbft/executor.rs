@@ -1,8 +1,7 @@
-use network::peer::Peer;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use utils::coder::{self, get_hash_str};
 
-use crate::pbft::common::get_message_key;
+use crate::pbft::common::{get_message_key, WATER_LEVEL_DIFFERENCE};
 
 use super::{
     local_logs::LocalLogs,
@@ -54,19 +53,20 @@ impl Executor {
     }
 
     pub async fn broadcast_preprepare(&self, msg: &str) {
-        Peer::broadcast_message(&self.broadcast_tx, msg).await;
+        self.broadcast_tx.send(msg.to_string()).await.unwrap();
     }
 
     pub async fn broadcast_prepare(&self, msg: &str) {
-        Peer::broadcast_message(&self.broadcast_tx, msg).await;
+        self.broadcast_tx.send(msg.to_string()).await.unwrap();
     }
 
     pub async fn broadcast_commit(&self, msg: &str) {
-        Peer::broadcast_message(&self.broadcast_tx, msg).await;
+        self.broadcast_tx.send(msg.to_string()).await.unwrap();
     }
 
     pub fn reply() {}
 
+    // handle request message
     pub async fn handle_request(&mut self, r: &Request) {
         // verify request message(client signature)
 
@@ -104,8 +104,21 @@ impl Executor {
         self.broadcast_preprepare(str_msg).await;
     }
 
+    // handle preprepare message
     pub async fn handle_preprepare(&mut self, source: &str, msg: &PrePrepare) {
         // verify preprepare message
+        // check sequence number
+        let low = self.state.current_seq_number;
+        let high = self.state.current_seq_number + WATER_LEVEL_DIFFERENCE;
+        if msg.number <= low || msg.number > high {
+            eprintln!("Invalid preprepare message: {:?}", &msg);
+            return ();
+        }
+        // check view
+        if self.state.view != msg.view {
+            eprintln!("Invalid preprepare message: {:?}", &msg);
+            return ();
+        }
 
         // record request message
         let serialized_request = msg.m.clone();
@@ -155,6 +168,18 @@ impl Executor {
 
     pub async fn handle_prepare(&mut self, source: &str, msg: &Prepare) {
         // verify prepare message
+        // check sequence number
+        let low = self.state.current_seq_number;
+        let high = self.state.current_seq_number + WATER_LEVEL_DIFFERENCE;
+        if msg.number <= low || msg.number > high {
+            eprintln!("Invalid preprepare message: {:?}", &msg);
+            return ();
+        }
+        // check view
+        if self.state.view != msg.view {
+            eprintln!("Invalid preprepare message: {:?}", &msg);
+            return ();
+        }
 
         // record message
         let mut record_msg = msg.clone();
@@ -168,28 +193,34 @@ impl Executor {
         println!("{:?}", &msg_vec);
         println!("###############################################################");
 
-        // create commit message
-        let view = self.state.view;
-        let seq_number = msg.number;
-        let m_hash = msg.m_hash.clone();
-        let signature = String::from("");
-        let commit = Commit {
-            view,
-            number: seq_number,
-            m_hash,
-            from_peer_id: String::from(""),
-            signature,
-        };
+        // check 2f+1 prepare messages (include current node)
+        let current_count = self.local_logs.get_local_messages_count_by_hash(&key_str);
+        let threshold = 2 * self.state.fault_tolerance_count;
+        if current_count as u64 == threshold {
+            println!("+++++++++++++++++++++++++");
+            // create commit message
+            let view = self.state.view;
+            let seq_number = msg.number;
+            let m_hash = msg.m_hash.clone();
+            let signature = String::from("");
+            let commit = Commit {
+                view,
+                number: seq_number,
+                m_hash,
+                from_peer_id: String::from(""),
+                signature,
+            };
 
-        let broadcast_msg = Message {
-            msg_type: MessageType::Commit(commit),
-        };
+            let broadcast_msg = Message {
+                msg_type: MessageType::Commit(commit),
+            };
 
-        let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-        let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
+            let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
+            let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
 
-        // broadcast commit message
-        self.broadcast_commit(str_msg).await;
+            // broadcast commit message
+            self.broadcast_commit(str_msg).await;
+        }
     }
 
     pub async fn handle_commit(&mut self, source: &str, msg: &Commit) {
