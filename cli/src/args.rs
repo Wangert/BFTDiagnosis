@@ -11,5 +11,11 @@ pub struct Args {
     pub gossipsub_addr: String,
     #[structopt(long = "gport", default_value = "51102")]
     pub gossipsub_port: u16,
+    #[structopt(long = "addr", default_value = "10.162.133.212")]
+    pub swarm_addr: String,
+    #[structopt(long = "port", default_value = "51102")]
+    pub swarm_port: u16,
+    #[structopt(long = "consensus", default_value = "false")]
+    pub is_consensus_node: String,
 }
 
