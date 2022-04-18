@@ -49,6 +49,20 @@ pub fn get_message_key(msg_type: MessageType) -> String {
 
             get_hash_str(&key)
         }
-        MessageType::Reply(reply) => "".to_string(),
+        MessageType::Reply(reply) => {
+            let mut key = vec![REPLY_PREFIX];
+            let mut client_id_vec = reply.client_id;
+            let mut timestamp_vec = reply.timestamp.into_bytes();
+            let mut view_vec = reply.view.to_be_bytes().to_vec();
+            let mut number_vec = reply.number.to_be_bytes().to_vec();
+            let mut result_vec = reply.result;
+            key.append(&mut client_id_vec);
+            key.append(&mut timestamp_vec);
+            key.append(&mut view_vec);
+            key.append(&mut number_vec);
+            key.append(&mut result_vec);
+
+            get_hash_str(&key)
+        }
     }
 }

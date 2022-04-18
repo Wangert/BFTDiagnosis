@@ -37,7 +37,7 @@ impl Peer {
         let peer_id = PeerId::from(keypair.public());
 
         Peer {
-            id: peer_id,
+            id: peer_id.clone(),
             swarm_addr,
             network: BaseSwarm::new(),
             keypair,
@@ -48,9 +48,9 @@ impl Peer {
         self.keypair.clone()
     }
 
-    pub async fn swarm_start(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn swarm_start(&mut self, is_consensus_node: bool) -> Result<(), Box<dyn Error>> {
         self.network
-            .build(self.id.clone(), self.keypair.clone())
+            .build(self.id.clone(), self.keypair.clone(), is_consensus_node)
             .await?;
         self.network.start(self.swarm_addr.clone())?;
 

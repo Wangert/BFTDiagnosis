@@ -1,26 +1,27 @@
 use std::collections::HashMap;
 
+use libp2p::futures::future::Map;
+
 use super::{
     common,
-    message::{Commit, MessageType, PrePrepare, Prepare, Request},
+    message::{Commit, MessageType, PrePrepare, Prepare, Request, Reply},
 };
 
 // node's local logs in consensus process
 pub struct LocalLogs {
+    pub requests: HashMap<u64, Request>,
     pub messages: HashMap<String, Vec<MessageType>>,
 }
 
 impl LocalLogs {
     pub fn new() -> LocalLogs {
+        let requests: HashMap<u64, Request> = HashMap::new();
         let messages: HashMap<String, Vec<MessageType>> = HashMap::new();
-        LocalLogs { messages }
+        LocalLogs { requests, messages }
     }
 
     pub fn record_message_handler(&mut self, msg: MessageType) {
         match msg {
-            MessageType::Request(request) => {
-                self.record_request(&request);
-            }
             MessageType::PrePrepare(preprepare) => {
                 self.record_preprepare(&preprepare);
             }
@@ -30,18 +31,16 @@ impl LocalLogs {
             MessageType::Commit(commit) => {
                 self.record_commit(&commit);
             }
-            MessageType::Reply(reply) => {}
+            MessageType::Reply(reply) => {
+                self.record_reply(&reply);
+            }
+            _ => {}
         }
     }
 
-    pub fn record_request(&mut self, request: &Request) {
-        let m_hash = common::get_message_key(MessageType::Request(request.clone()));
-
-        if let Some(msg_vec) = self.messages.get_mut(&m_hash) {
-            msg_vec.push(MessageType::Request(request.clone()));
-        } else {
-            let msg_vec = vec![MessageType::Request(request.clone())];
-            self.messages.insert(m_hash, msg_vec);
+    pub fn record_request(&mut self, sequence_number: u64, request: &Request) {
+        if !self.requests.contains_key(&sequence_number) {
+            self.requests.insert(sequence_number, request.clone());
         }
     }
 
@@ -82,6 +81,21 @@ impl LocalLogs {
             let msg_vec = vec![MessageType::Commit(msg.clone())];
             self.messages.insert(key_hash, msg_vec);
         }
+    }
+
+    pub fn record_reply(&mut self, msg: &Reply) {
+        let key_hash = common::get_message_key(MessageType::Reply(msg.clone()));
+
+        if let Some(msg_vec) = self.messages.get_mut(&key_hash) {
+            msg_vec.push(MessageType::Reply(msg.clone()))
+        } else {
+            let msg_vec = vec![MessageType::Reply(msg.clone())];
+            self.messages.insert(key_hash, msg_vec);
+        }
+    }
+
+    pub fn get_local_request_by_sequence_number(&self, sequence_number: u64) -> Option<&Request> {
+        self.requests.get(&sequence_number)
     }
 
     pub fn get_local_messages_by_hash(&self, hash: &str) -> Box<Vec<MessageType>> {

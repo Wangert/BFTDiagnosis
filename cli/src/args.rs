@@ -15,5 +15,7 @@ pub struct Args {
     pub swarm_addr: String,
     #[structopt(long = "port", default_value = "51102")]
     pub swarm_port: u16,
+    #[structopt(long = "consensus", default_value = "false")]
+    pub is_consensus_node: String,
 }
 

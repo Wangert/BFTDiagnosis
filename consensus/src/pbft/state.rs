@@ -3,11 +3,20 @@ pub struct State {
     pub current_seq_number: u64,
     pub primary: String,
     pub node_count: u64,
-    pub fault_tolerance_count: u64,   
+    pub fault_tolerance_count: u64,
+    // 1: prepared; 2: commited; 3: replied;
+    pub current_state: u8,
 }
 
 impl State {
     pub fn new() -> State {
-        State { view: 0, current_seq_number: 0, primary: String::from(""), node_count: 4, fault_tolerance_count: 1}
+        State {
+            view: 0,
+            current_seq_number: 0,
+            primary: String::from(""),
+            node_count: 4,
+            fault_tolerance_count: 1,
+            current_state: 0,
+        }
     }
 }

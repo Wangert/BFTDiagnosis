@@ -22,7 +22,7 @@ pub struct Message {
 pub struct Request {
     pub operation: String,
     pub timestamp: String,
-    pub client_addr: String,
+    pub client_id: Vec<u8>,
     pub signature: String,
 }
 
@@ -56,12 +56,21 @@ pub struct Commit {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Reply {
-    pub client_addr: String,
+    pub client_id: Vec<u8>,
     pub timestamp: String,
     pub view: u64,
     pub number: u64,
     pub from_peer_id: String,
     pub signature: String,
+    pub result: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct MetaReply {
+    pub client_id: Vec<u8>,
+    pub timestamp: String,
+    pub view: u64,
+    pub number: u64,
     pub result: Vec<u8>,
 }
 
@@ -102,7 +111,7 @@ mod message_tests {
 
         let request = Request {
             operation: String::from("operation"),
-            client_addr: String::from("client_addr"),
+            client_id: "client_id".as_bytes().to_vec(),
             timestamp: Local::now().timestamp().to_string(),
             signature: String::from("signature"),
         };

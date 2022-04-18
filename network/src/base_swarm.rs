@@ -19,7 +19,7 @@ use libp2p::{
 
 use crate::{
     p2p_protocols::{base_behaviour::BaseBehaviour, unicast::behaviour::Unicast},
-    transport::{create_base_transport, CMTTransport},
+    transport::create_base_transport,
 };
 
 // mdns + unicast + gossipsub swarm
@@ -37,6 +37,7 @@ impl BaseSwarm {
         &mut self,
         peer_id: PeerId,
         keypair: Keypair,
+        is_consensus_node: bool,
     ) -> Result<(), Box<dyn Error>> {
         // create transport
         let transport = create_base_transport(&keypair).await?;
@@ -71,8 +72,15 @@ impl BaseSwarm {
         )
         .expect("Gossipsub correct configuration");
 
-        let topic = IdentTopic::new("consensus");
-        gossipsub.subscribe(&topic).unwrap();
+        if is_consensus_node == true {
+            let topic = IdentTopic::new("consensus");
+            gossipsub.subscribe(&topic).unwrap();
+        } else {
+            let topic = IdentTopic::new("client");
+            gossipsub.subscribe(&topic).unwrap();
+        }
+        
+        
 
         // create mdns
         let mdns = Mdns::new(MdnsConfig::default()).await?;

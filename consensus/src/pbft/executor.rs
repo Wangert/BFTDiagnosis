@@ -13,19 +13,19 @@ use super::{
 pub struct Executor {
     pub state: State,
     pub local_logs: Box<LocalLogs>,
-    pub broadcast_tx: Sender<String>,
-    pub broadcast_rx: Receiver<String>,
+    pub msg_tx: Sender<Vec<u8>>,
+    pub msg_rx: Receiver<Vec<u8>>,
 }
 
 impl Executor {
     pub fn new() -> Executor {
-        let (broadcast_tx, broadcast_rx) = mpsc::channel::<String>(10);
+        let (msg_tx, msg_rx) = mpsc::channel::<Vec<u8>>(10);
 
         Executor {
             state: State::new(),
             local_logs: Box::new(LocalLogs::new()),
-            broadcast_tx,
-            broadcast_rx,
+            msg_tx,
+            msg_rx,
         }
     }
 
@@ -47,24 +47,26 @@ impl Executor {
                 self.handle_commit(source, &m).await;
             }
             MessageType::Reply(m) => {
-                self.handle_reply(&m);
+                self.handle_reply(source, &m);
             } // _ => { eprintln!("Invalid pbft message!"); },
         }
     }
 
-    pub async fn broadcast_preprepare(&self, msg: &str) {
-        self.broadcast_tx.send(msg.to_string()).await.unwrap();
+    pub async fn broadcast_preprepare(&self, msg: &[u8]) {
+        self.msg_tx.send(msg.to_vec()).await.unwrap();
     }
 
-    pub async fn broadcast_prepare(&self, msg: &str) {
-        self.broadcast_tx.send(msg.to_string()).await.unwrap();
+    pub async fn broadcast_prepare(&self, msg: &[u8]) {
+        self.msg_tx.send(msg.to_vec()).await.unwrap();
     }
 
-    pub async fn broadcast_commit(&self, msg: &str) {
-        self.broadcast_tx.send(msg.to_string()).await.unwrap();
+    pub async fn broadcast_commit(&self, msg: &[u8]) {
+        self.msg_tx.send(msg.to_vec()).await.unwrap();
     }
 
-    pub fn reply() {}
+    pub async fn reply(&self, msg: &[u8]) {
+        self.msg_tx.send(msg.to_vec()).await.unwrap();
+    }
 
     // handle request message
     pub async fn handle_request(&mut self, r: &Request) {
@@ -79,6 +81,14 @@ impl Executor {
         let seq_number = self.state.current_seq_number + 1;
 
         let serialized_request = coder::serialize_into_bytes(&r);
+        self.local_logs.record_request(seq_number, &r.clone());
+        let request = self
+            .local_logs
+            .get_local_request_by_sequence_number(seq_number);
+        println!("###################Current Request Messages#################");
+        println!("{:?}", &request);
+        println!("###############################################################");
+
         let m_hash = get_hash_str(&serialized_request);
         // signature
         let signature = String::from("");
@@ -98,10 +108,10 @@ impl Executor {
         };
 
         let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-        let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
+        //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
 
         // broadcast PrePrepare message
-        self.broadcast_preprepare(str_msg).await;
+        self.broadcast_preprepare(&serialized_msg[..]).await;
     }
 
     // handle preprepare message
@@ -112,20 +122,21 @@ impl Executor {
         let high = self.state.current_seq_number + WATER_LEVEL_DIFFERENCE;
         if msg.number <= low || msg.number > high {
             eprintln!("Invalid preprepare message: {:?}", &msg);
-            return ();
+            return;
         }
         // check view
         if self.state.view != msg.view {
             eprintln!("Invalid preprepare message: {:?}", &msg);
-            return ();
+            return;
         }
 
         // record request message
         let serialized_request = msg.m.clone();
-        let m: Request = coder::deserialize_for_bytes(&serialized_request);
-        self.local_logs
-            .record_message_handler(MessageType::Request(m));
-        let request = self.local_logs.get_local_messages_by_hash(&msg.m_hash);
+        let m: Request = coder::deserialize_for_bytes(&serialized_request[..]);
+        self.local_logs.record_request(msg.number, &m);
+        let request = self
+            .local_logs
+            .get_local_request_by_sequence_number(msg.number);
         println!("###################Current Request Messages#################");
         println!("{:?}", &request);
         println!("###############################################################");
@@ -160,25 +171,43 @@ impl Executor {
         };
 
         let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-        let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
+        //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
 
         // broadcast prepare message
-        self.broadcast_prepare(str_msg).await;
+        self.broadcast_prepare(&serialized_msg[..]).await;
     }
 
     pub async fn handle_prepare(&mut self, source: &str, msg: &Prepare) {
+        if self.state.current_state == 1 {
+            return;
+        }
         // verify prepare message
         // check sequence number
         let low = self.state.current_seq_number;
         let high = self.state.current_seq_number + WATER_LEVEL_DIFFERENCE;
         if msg.number <= low || msg.number > high {
             eprintln!("Invalid preprepare message: {:?}", &msg);
-            return ();
+            return;
         }
         // check view
         if self.state.view != msg.view {
             eprintln!("Invalid preprepare message: {:?}", &msg);
-            return ();
+            return;
+        }
+
+        // check m hash
+        let m = self
+            .local_logs
+            .get_local_request_by_sequence_number(msg.number);
+        if let Some(m) = m {
+            let request_hash = get_message_key(MessageType::Request(m.clone()));
+            if request_hash.ne(&msg.m_hash) {
+                eprintln!("Request hash error!");
+                return;
+            }
+        } else {
+            eprintln!("Request is not exsit!");
+            return;
         }
 
         // record message
@@ -197,7 +226,8 @@ impl Executor {
         let current_count = self.local_logs.get_local_messages_count_by_hash(&key_str);
         let threshold = 2 * self.state.fault_tolerance_count;
         if current_count as u64 == threshold {
-            println!("+++++++++++++++++++++++++");
+            self.state.current_state = 1;
+            println!("【Prepare message to 2f+1, send commit message】");
             // create commit message
             let view = self.state.view;
             let seq_number = msg.number;
@@ -216,15 +246,47 @@ impl Executor {
             };
 
             let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-            let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
+            //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
 
             // broadcast commit message
-            self.broadcast_commit(str_msg).await;
+            self.broadcast_commit(&serialized_msg[..]).await;
         }
     }
 
     pub async fn handle_commit(&mut self, source: &str, msg: &Commit) {
+        if self.state.current_state == 2 {
+            return;
+        }
         // verify commit message
+        // check sequence number
+        let low = self.state.current_seq_number;
+        let high = self.state.current_seq_number + WATER_LEVEL_DIFFERENCE;
+        if msg.number <= low || msg.number > high {
+            eprintln!("Invalid preprepare message: {:?}", &msg);
+            return;
+        }
+        // check view
+        if self.state.view != msg.view {
+            eprintln!("Invalid preprepare message: {:?}", &msg);
+            return;
+        }
+
+        // check m hash
+        let m = self
+            .local_logs
+            .get_local_request_by_sequence_number(msg.number);
+        let m = if let Some(m) = m {
+            m.clone()
+        } else {
+            panic!("Not have local request record!");
+        };
+        
+        // check m hash
+        let request_hash = get_message_key(MessageType::Request(m.clone()));
+        if request_hash.ne(&msg.m_hash) {
+            eprintln!("Request hash error!");
+            return;
+        }
 
         // record message
         let mut record_msg = msg.clone();
@@ -238,44 +300,69 @@ impl Executor {
         println!("{:?}", &msg_vec);
         println!("###############################################################");
 
-        // create reply message
-        let view = self.state.view;
-        let seq_number = msg.number;
-        let m_hash = msg.m_hash.clone();
-        let signature = String::from("");
+        // check 2f+1 commit
+        let current_count = self.local_logs.get_local_messages_count_by_hash(&key_str);
+        let threshold = 2 * self.state.fault_tolerance_count;
 
-        let mut client_addr = "".to_string();
-        let mut timestamp = "".to_string();
-        match self.local_logs.get_local_messages_by_hash(&m_hash).get(0) {
-            Some(MessageType::Request(m)) => {
-                client_addr = m.client_addr.clone();
-                timestamp = m.timestamp.clone();
-            }
-            _ => {
-                eprintln!("Not have local request record! ")
-            }
-        };
+        if current_count as u64 == threshold {
+            self.state.current_state = 2;
+            println!("【Commit message to 2f+1, send reply message】");
+            // create reply message
+            let view = self.state.view;
+            let seq_number = msg.number;
+            let signature = String::from("");
 
-        let reply = Reply {
-            client_addr,
-            timestamp,
-            number: seq_number,
-            from_peer_id: String::from(""),
-            signature,
-            result: "ok!".as_bytes().to_vec(),
-            view,
-        };
+            let client_id = m.client_id;
+            let timestamp = m.timestamp;
 
-        let broadcast_msg = Message {
-            msg_type: MessageType::Reply(reply),
-        };
+            let reply = Reply {
+                client_id,
+                timestamp,
+                number: seq_number,
+                from_peer_id: String::from(""),
+                signature,
+                result: "ok!".as_bytes().to_vec(),
+                view,
+            };
 
-        let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-        let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
+            let broadcast_msg = Message {
+                msg_type: MessageType::Reply(reply),
+            };
 
-        // broadcast PrePrepare message
-        self.broadcast_commit(str_msg).await;
+            let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
+            //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
+
+            // Send Reply message to client
+            self.reply(&serialized_msg[..]).await;
+        }
     }
 
-    pub fn handle_reply(&self, msg: &Reply) {}
+    pub fn handle_reply(&mut self, source: &str, msg: &Reply) {
+        if self.state.current_state == 3 {
+            return;
+        }
+        // verify signature
+
+        // record reply 
+        let mut record_msg = msg.clone();
+        record_msg.from_peer_id = source.to_string();
+
+        self.local_logs.record_message_handler(MessageType::Reply(record_msg));
+        let key_str = get_message_key(MessageType::Reply(msg.clone()));
+        let msg_vec = self.local_logs.get_local_messages_by_hash(&key_str);
+        println!("###################Current Reply Messages#################");
+        println!("{:?}", &msg_vec);
+        println!("###############################################################");
+
+        // check f+1
+        let current_count = self.local_logs.get_local_messages_count_by_hash(&key_str);
+        let reply_threshold = self.state.fault_tolerance_count + 1;
+        if current_count as u64 == reply_threshold {
+            self.state.current_state = 3;
+
+            let result_str = std::str::from_utf8(&msg.result[..]).unwrap();
+            println!("###############################################################");
+            println!("Request consesnus successful, result is {}", result_str);
+        }
+    }
 }
