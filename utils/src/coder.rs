@@ -43,3 +43,19 @@ pub fn get_hash_str(value: &[u8]) -> String {
     hasher.input(value);
     hasher.result_str()
 }
+
+#[cfg(test)]
+mod coder_test {
+    use crate::coder::{get_hash_u8_vec, get_hash_str};
+
+    #[test]
+    fn hash_works() {
+        let s = "wangjitao".as_bytes();
+        let mut out: [u8;64] = ['0' as u8;64];
+        get_hash_u8_vec(s, &mut out);
+        println!("out: {:?}", &out);
+        
+        let hash_str = get_hash_str(s);
+        println!("str: {:?}", hash_str);
+    }
+}

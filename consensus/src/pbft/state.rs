@@ -1,22 +1,115 @@
+use libp2p::futures::executor::block_on;
+use utils::coder::get_hash_str;
+use std::{borrow::BorrowMut, collections::HashMap, sync::Arc, time::Duration};
+use tokio::sync::{Mutex, Notify};
+
+use super::timer::{timeout_tick, Timeout, TimeoutState};
+
 pub struct State {
     pub view: u64,
-    pub current_seq_number: u64,
+    pub current_sequence_number: u64,
+    //pub low_water: u64,
     pub primary: String,
     pub node_count: u64,
     pub fault_tolerance_count: u64,
-    // 1: prepared; 2: commited; 3: replied;
-    pub current_state: u8,
+    // Normal and abnormal mode in the consensus process
+    pub mode: Arc<Mutex<Mode>>,
+    pub stable_checkpoint: u64,
+    pub current_commited_request_count: Arc<Mutex<u64>>,
+    pub checkpoint_state: String,
+    // Client node's state
+    pub client_state: ClientState,
+    // Reach the prepared state timeout
+    pub prepared_timeout: Timeout,
+    // Reach the commited state timeout
+    pub commited_timeout: Timeout,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Mode {
+    // The consensus node is normally in the consensus process
+    Normal,
+    // View change process
+    Abnormal,
+}
+
+pub enum ClientState {
+    NotRequest,
+    Waiting,
+    Replied,
+}
+
+pub enum PhaseState {
+    NotRequest,
+    Init,
+    Prepared,
+    Commited,
+    Replied,
 }
 
 impl State {
-    pub fn new() -> State {
+    pub fn new(timeout_duration: Duration) -> State {
+        let initial_checkpoint_state = [0 as u8; 64];
+        let checkpoint_state = String::from_utf8_lossy(&initial_checkpoint_state).to_string();
         State {
             view: 0,
-            current_seq_number: 0,
+            current_sequence_number: 0,
+            //low_water: 0,
             primary: String::from(""),
             node_count: 4,
             fault_tolerance_count: 1,
-            current_state: 0,
+            mode: Arc::new(Mutex::new(Mode::Normal)),
+            stable_checkpoint: 0,
+            current_commited_request_count: Arc::new(Mutex::new(0)),
+            checkpoint_state,
+            client_state: ClientState::NotRequest,
+            prepared_timeout: Timeout::new(timeout_duration),
+            commited_timeout: Timeout::new(timeout_duration),
         }
+    }
+
+    pub fn update_checkpoint_state(&mut self, commited_request_hash: &str) {
+        let old_checkpoint_state = self.checkpoint_state.clone();
+        let old_checkpoint_state_u8s = old_checkpoint_state.as_bytes();
+        let commited_request_hash_u8s = commited_request_hash.as_bytes();
+        let new_checkpoint_state_vec: Vec<u8> = old_checkpoint_state_u8s
+            .iter()
+            .zip(commited_request_hash_u8s.iter())
+            .map(|(a, b)| a ^ b)
+            .collect();
+        let new_checkpoint_state = get_hash_str(&new_checkpoint_state_vec);
+        self.checkpoint_state = new_checkpoint_state;
+    }
+
+    // pub fn commited_timeout_tick_start(&mut self, notify: Arc<Notify>) {
+    //     if let TimeoutState::Active = self.commited_timeout.state {
+    //         let duration = self.commited_timeout.duration;
+    //         let mut mode = self.mode.clone();
+    //         let viewchange_closure = move || {
+    //             let mut locked_mode = block_on(mode.lock());
+    //             *locked_mode = Mode::Abnormal;
+    //         };
+    //         tokio::spawn(timeout_tick(duration, notify, viewchange_closure));
+    //     }
+    // }
+}
+
+#[cfg(test)]
+mod state_test {
+    #[test]
+    fn checkpoint_state_works() {
+        let initial_checkpoint_state = [1 as u8; 64];
+        let checkpoint_state = String::from_utf8_lossy(&initial_checkpoint_state).to_string();
+        let m_str = "af115755cd60628a5e65734359d2d6bd50209275933c83ead56ac0466b105c52".to_string();
+        let m_hash = "af115755cd60628a5e65734359d2d6bd50209275933c83ead56ac0466b105c52".as_bytes();
+        println!("init_length: {:?}", &initial_checkpoint_state);
+        println!("m_hash_length: {:?}", m_hash);
+
+        let new_checkpoint_state: Vec<u8> = initial_checkpoint_state
+            .iter()
+            .zip(m_hash.iter())
+            .map(|(a, b)| a ^ b)
+            .collect();
+        println!("new: {:?}", new_checkpoint_state);
     }
 }

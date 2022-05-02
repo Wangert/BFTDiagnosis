@@ -16,7 +16,7 @@ use network::{
 use tokio::{io::{AsyncReadExt, self, AsyncBufReadExt}, net::TcpStream, sync::Mutex};
 use utils::coder::{self, serialize_into_bytes, deserialize_for_bytes};
 
-use crate::pbft::message::{MessageType, Request};
+use crate::pbft::{message::{MessageType, Request}, state::ClientState};
 
 use super::{executor::Executor, message::Message};
 
@@ -46,6 +46,7 @@ impl Node {
     ) -> Result<(), Box<dyn Error>> {
         self.network_peer.swarm_start(is_consensus_node).await?;
         if is_consensus_node {
+            self.executor.timeout_check_start();
             self.message_handler_start().await;
         } else {
             self.client_message_handler_start().await;
@@ -119,6 +120,7 @@ impl Node {
 
                         println!("Deserialzed_msg: {:?}", &deserialized_msg);
                         swarm.behaviour_mut().unicast.send_message(&peer_id, serialized_msg);
+                        self.executor.state.client_state = ClientState::Waiting;
                         //self.send_request("operation_test", &peer);
                     }
                 }
@@ -170,6 +172,9 @@ impl Node {
         // Kick it off
         loop {
             tokio::select! {
+                _ = self.executor.viewchange_notify.notified() => {
+                    self.executor.broadcast_viewchange().await;
+                },
                 Some(msg) = self.executor.msg_rx.recv() => {
                     //let serialized_msg = msg.clone().into_bytes();
                     let message: Message = coder::deserialize_for_bytes(&msg[..]);
@@ -206,20 +211,12 @@ impl Node {
                     }
                     SwarmEvent::Behaviour(OutEvent::Gossipsub(GossipsubEvent::Message {
                         propagation_source: peer_id,
-                        message_id: id,
+                        message_id: _id,
                         message,
                     })) => {
                         //println!("Got message: {} with id: {} from peer: {:?}", String::from_utf8_lossy(&message.data), id, &peer_id);
-                        let msg: Message = coder::deserialize_for_bytes(&message.data);
-                        //println!("Gossip Deserialized Message: {:?}", &msg);
-
-                        // let str_msg: String = String::from_utf8_lossy(&message.data).parse().unwrap();
-                        // if let Err(e) = self.proto.message_tx.send(str_msg).await {
-                        //     eprintln!("Send message_tx error:{:?}", e);
-                        // };
-
+                        //let msg: Message = coder::deserialize_for_bytes(&message.data);
                         self.executor.pbft_message_handler(&peer_id.to_string(), &message.data).await;
-                        //self.pbft_message_handler(std::str::from_utf8(&message.data).unwrap());
                     }
                     SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
                         for (peer, _) in list {

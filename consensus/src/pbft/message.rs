@@ -1,4 +1,6 @@
 
+use std::collections::HashMap;
+
 use serde::{Serialize, Deserialize};
 
 
@@ -10,6 +12,9 @@ pub enum MessageType {
     Prepare(Prepare),
     Commit(Commit),
     Reply(Reply),
+    CheckPoint(CheckPoint),
+    ViewChange(ViewChange),
+    NewView(NewView),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,6 +77,29 @@ pub struct MetaReply {
     pub view: u64,
     pub number: u64,
     pub result: Vec<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CheckPoint {
+    pub current_max_number: u64,
+    pub checkpoint_state_digest: String,
+    pub from_peer_id: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ViewChange {
+    pub new_view: u64,
+    pub latest_stable_checkpoint: u64,
+    pub latest_stable_checkpoint_messages: Vec<CheckPoint>,
+    pub proof_messages: Vec<MessageType>,
+    pub from_peer_id: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NewView {
+
 }
 
 
