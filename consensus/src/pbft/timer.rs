@@ -1,6 +1,6 @@
-use std::{sync::Arc, time::Duration, collections::HashMap};
+use std::{sync::Arc, time::Duration};
 
-use tokio::sync::{Notify, Mutex};
+use tokio::sync::Notify;
 
 pub struct Timeout {
     pub state: TimeoutState,
@@ -15,7 +15,11 @@ pub enum TimeoutState {
 
 impl Timeout {
     pub fn new(duration: Duration) -> Self {
-        Timeout { state: TimeoutState::Inactive, duration, notify: Arc::new(Notify::new()) }
+        Timeout {
+            state: TimeoutState::Inactive,
+            duration,
+            notify: Arc::new(Notify::new()),
+        }
     }
 
     pub fn start(&mut self) {

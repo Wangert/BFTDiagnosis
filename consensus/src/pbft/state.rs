@@ -1,20 +1,20 @@
-use libp2p::futures::executor::block_on;
+use std::{sync::Arc, time::Duration};
+use tokio::sync::Mutex;
 use utils::coder::get_hash_str;
-use std::{borrow::BorrowMut, collections::HashMap, sync::Arc, time::Duration};
-use tokio::sync::{Mutex, Notify};
 
-use super::timer::{timeout_tick, Timeout, TimeoutState};
+use super::timer::Timeout;
 
 pub struct State {
     pub view: u64,
     pub current_sequence_number: u64,
     //pub low_water: u64,
     pub primary: String,
+    pub is_primary: bool,
     pub node_count: u64,
     pub fault_tolerance_count: u64,
     // Normal and abnormal mode in the consensus process
     pub mode: Arc<Mutex<Mode>>,
-    pub stable_checkpoint: u64,
+    pub stable_checkpoint: StableCheckpoint,
     pub current_commited_request_count: Arc<Mutex<u64>>,
     pub checkpoint_state: String,
     // Client node's state
@@ -24,6 +24,8 @@ pub struct State {
     // Reach the commited state timeout
     pub commited_timeout: Timeout,
 }
+
+pub struct StableCheckpoint(pub u64, pub String);
 
 #[derive(Debug, Clone, Copy)]
 pub enum Mode {
@@ -56,10 +58,11 @@ impl State {
             current_sequence_number: 0,
             //low_water: 0,
             primary: String::from(""),
+            is_primary: false,
             node_count: 4,
             fault_tolerance_count: 1,
             mode: Arc::new(Mutex::new(Mode::Normal)),
-            stable_checkpoint: 0,
+            stable_checkpoint: StableCheckpoint(0, String::from("")),
             current_commited_request_count: Arc::new(Mutex::new(0)),
             checkpoint_state,
             client_state: ClientState::NotRequest,
@@ -99,8 +102,8 @@ mod state_test {
     #[test]
     fn checkpoint_state_works() {
         let initial_checkpoint_state = [1 as u8; 64];
-        let checkpoint_state = String::from_utf8_lossy(&initial_checkpoint_state).to_string();
-        let m_str = "af115755cd60628a5e65734359d2d6bd50209275933c83ead56ac0466b105c52".to_string();
+        let _checkpoint_state = String::from_utf8_lossy(&initial_checkpoint_state).to_string();
+        let _m_str = "af115755cd60628a5e65734359d2d6bd50209275933c83ead56ac0466b105c52".to_string();
         let m_hash = "af115755cd60628a5e65734359d2d6bd50209275933c83ead56ac0466b105c52".as_bytes();
         println!("init_length: {:?}", &initial_checkpoint_state);
         println!("m_hash_length: {:?}", m_hash);

@@ -1,10 +1,9 @@
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
-use libp2p::futures::future::Map;
 use tokio::sync::Mutex;
 
 use super::{
@@ -12,19 +11,27 @@ use super::{
         self, get_commit_key_by_request_hash, get_prepare_key_by_request_hash,
         get_preprepare_key_by_request_hash,
     },
-    message::{CheckPoint, Commit, MessageType, PrePrepare, Prepare, Reply, Request, ViewChange},
+    message::{
+        CheckPoint, Commit, MessageType, PrePrepare, Prepare, ProofMessages, Reply, Request,
+        ViewChange,
+    },
     state::PhaseState,
 };
 
 // node's local logs in consensus process
 pub struct LocalLogs {
     pub requests: HashMap<u64, Request>,
+    // storage preprepare, prepare and commit messages
     pub messages: HashMap<String, Vec<MessageType>>,
+    // storage checkpoint messages:
     // (sequence_number, checkpoint_state_digest) -> checkpoint messages
     pub checkpoints: HashMap<(u64, String), Vec<CheckPoint>>,
+    // storage viewchange messages:
+    // sequence_number -> viewchange messages
     pub viewchanges: HashMap<u64, Vec<ViewChange>>,
     // request_key -> (view, sequence_number)
     pub request_map: HashMap<String, (u64, u64)>,
+    // record request's phase state: NotRequest, Init, Prepared, Commited, Replied
     pub request_phase_state: HashMap<String, PhaseState>,
     // record request start timestamp
     pub current_requests: Arc<Mutex<VecDeque<(String, Instant)>>>,
@@ -95,6 +102,15 @@ impl LocalLogs {
         }
     }
 
+    // get the number of viewchange message by view number
+    pub fn get_viewchange_messages_count_by_view(&self, view: u64) -> usize {
+        if let Some(viewchange_vec) = self.viewchanges.get(&view) {
+            viewchange_vec.len()
+        } else {
+            0
+        }
+    }
+
     // discard all pre-prepare, prepare, commit, checkpoint messages
     // with sequence number less than or equal to stable_checkpoint_number
     pub fn discard_messages_before_stable_checkpoint(&mut self, stable_checkpoint_number: u64) {
@@ -146,15 +162,45 @@ impl LocalLogs {
         sequence_number: u64,
         threshold: u64,
     ) -> Box<Vec<CheckPoint>> {
-        let mut checkpoint_vec_iter = self
-            .checkpoints
-            .iter()
-            .filter(|((seq_number, _), checkpoint_vec)| {
-                *seq_number == sequence_number && checkpoint_vec.len() as u64 == threshold
-            });
+        let mut checkpoint_vec_iter =
+            self.checkpoints
+                .iter()
+                .filter(|((seq_number, _), checkpoint_vec)| {
+                    *seq_number == sequence_number && checkpoint_vec.len() as u64 == threshold
+                });
         let checkpoint_vec = checkpoint_vec_iter.next();
         if let Some(checkpoint) = checkpoint_vec {
             Box::new(checkpoint.1.clone())
+        } else {
+            Box::new(vec![])
+        }
+    }
+
+    pub fn get_preprepare_messages_by_request_hash(
+        &self,
+        request_hash: &str,
+    ) -> Box<Vec<MessageType>> {
+        let (view, sequence_number) = self.request_map.get(request_hash).expect("No request!");
+        let preprepare_key =
+            get_preprepare_key_by_request_hash(request_hash.as_bytes(), *view, *sequence_number);
+
+        if let Some(preprepare_vec) = self.messages.get(&preprepare_key) {
+            Box::new(preprepare_vec.clone())
+        } else {
+            Box::new(vec![])
+        }
+    }
+
+    pub fn get_prepare_messages_by_request_hash(
+        &self,
+        request_hash: &str,
+    ) -> Box<Vec<MessageType>> {
+        let (view, sequence_number) = self.request_map.get(request_hash).expect("No request!");
+        let prepare_key =
+            get_prepare_key_by_request_hash(request_hash.as_bytes(), *view, *sequence_number);
+
+        if let Some(prepare_vec) = self.messages.get(&prepare_key) {
+            Box::new(prepare_vec.clone())
         } else {
             Box::new(vec![])
         }
@@ -186,18 +232,145 @@ impl LocalLogs {
         Box::new([preprepare_vec, prepare_vec].concat())
     }
 
-    pub async fn get_proof_messages(&self) -> Box<Vec<MessageType>> {
+    pub async fn get_proof_messages(&self) -> Box<ProofMessages> {
         let mut current_requests = self.current_requests.lock().await.clone();
-        let mut proof_messages: Vec<MessageType> = vec![];
+        let mut preprepare_messages: Vec<MessageType> = vec![];
+        let mut prepare_messages: Vec<MessageType> = vec![];
         loop {
             if let Some(v) = current_requests.pop_front() {
-                let mut p = *self.get_preprepare_and_prepare_by_request_hash(&v.0).clone();
-                proof_messages.append(&mut p);
+                let mut preprepare_msg =
+                    *self.get_preprepare_messages_by_request_hash(&v.0).clone();
+                let mut prepare_msg = *self.get_prepare_messages_by_request_hash(&v.0).clone();
+
+                preprepare_messages.append(&mut preprepare_msg);
+                prepare_messages.append(&mut prepare_msg);
             } else {
                 break;
             };
         }
+
+        let proof_messages = ProofMessages {
+            preprepares: preprepare_messages,
+            prepares: prepare_messages,
+        };
         Box::new(proof_messages)
+    }
+
+    // Get local viewchange messages' maximum sequence number based on view number
+    pub fn get_max_sequence_number_in_viewchange_by_view(&self, view: u64) -> u64 {
+        let viewchange_messages = if let Some(messages) = self.viewchanges.get(&view) {
+            messages.clone()
+        } else {
+            vec![]
+        };
+
+        let mut max = 0 as u64;
+        for viewchange in viewchange_messages {
+            let mut prepare_messages_iter = viewchange.proof_messages.prepares.iter();
+            loop {
+                match prepare_messages_iter.next() {
+                    Some(MessageType::Prepare(prepare)) if prepare.number > max => {
+                        max = prepare.number
+                    }
+                    None => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        max
+    }
+
+    pub fn get_preprepare_for_not_executed_request_by_view(
+        &self,
+        view: u64,
+        min: u64,
+        max: u64,
+    ) -> Box<Vec<PrePrepare>> {
+        let viewchanges = if let Some(messages) = self.viewchanges.get(&view) {
+            messages.clone()
+        } else {
+            vec![]
+        };
+
+        let mut preprepare_map: HashMap<u64, PrePrepare> = HashMap::new();
+        for viewchange in viewchanges {
+            let mut preprepare_message_iter = viewchange.proof_messages.preprepares.iter();
+            loop {
+                match preprepare_message_iter.next() {
+                    Some(MessageType::PrePrepare(preprepare))
+                        if !preprepare_map.contains_key(&preprepare.number) =>
+                    {
+                        preprepare_map.insert(preprepare.number, preprepare.clone());
+                    }
+                    None => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Box::new(
+            preprepare_map
+                .iter()
+                .filter(|(&k, _)| k > min && k <= max)
+                .map(|(_, v)| v.clone())
+                .collect::<Vec<PrePrepare>>(),
+        )
+    }
+
+    pub fn create_newview_preprepare_messages(
+        &self,
+        view: u64,
+        min: u64,
+        max: u64,
+    ) -> Box<Vec<PrePrepare>> {
+        let viewchanges = if let Some(messages) = self.viewchanges.get(&view) {
+            messages.clone()
+        } else {
+            vec![]
+        };
+
+        let mut preprepare_map: HashMap<u64, PrePrepare> = HashMap::new();
+        for viewchange in viewchanges {
+            let mut preprepare_message_iter = viewchange.proof_messages.preprepares.iter();
+            loop {
+                match preprepare_message_iter.next() {
+                    Some(MessageType::PrePrepare(preprepare))
+                        if !preprepare_map.contains_key(&preprepare.number) =>
+                    {
+                        preprepare_map.insert(preprepare.number, preprepare.clone());
+                    }
+                    None => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Box::new(
+            ((min + 1)..(max + 1))
+                .into_iter()
+                .map(|i| {
+                    if let Some(preprepare) = preprepare_map.get(&i) {
+                        preprepare.clone()
+                    } else {
+                        PrePrepare {
+                            view,
+                            number: i,
+                            m_hash: String::from("NULL"),
+                            m: vec![],
+                            signature: String::from(""),
+                            from_peer_id: String::from(""),
+                        }
+                    }
+                })
+                .collect::<Vec<PrePrepare>>(),
+        )
     }
 
     // Record a request that do not reach a consensus
@@ -211,6 +384,11 @@ impl LocalLogs {
     // Remove a consensus request
     pub async fn remove_commited_request(&mut self) {
         self.current_requests.lock().await.pop_front();
+    }
+
+    // Clear current requests
+    pub async fn clear_current_request(&mut self) {
+        self.current_requests.lock().await.clear();
     }
 
     pub fn update_request_phase_state(&mut self, request_key: &str, state: PhaseState) {
@@ -321,5 +499,194 @@ impl LocalLogs {
         } else {
             0
         }
+    }
+}
+
+#[cfg(test)]
+mod local_logs_test {
+    use crate::pbft::message::{MessageType, PrePrepare, Prepare, ProofMessages, ViewChange};
+
+    use super::LocalLogs;
+
+    #[test]
+    fn create_newview_preprepare_messages_works() {
+        let mut local_logs = LocalLogs::new();
+
+        let preprepare_1 = PrePrepare {
+            view: 1,
+            number: 4,
+            m_hash: String::from("request"),
+            m: vec![],
+            signature: String::from(""),
+            from_peer_id: String::from(""),
+        };
+        let preprepare_2 = PrePrepare {
+            view: 1,
+            number: 5,
+            m_hash: String::from("request"),
+            m: vec![],
+            signature: String::from(""),
+            from_peer_id: String::from(""),
+        };
+        let preprepare_3 = PrePrepare {
+            view: 1,
+            number: 9,
+            m_hash: String::from("request"),
+            m: vec![],
+            signature: String::from(""),
+            from_peer_id: String::from(""),
+        };
+        let preprepare_4 = PrePrepare {
+            view: 1,
+            number: 10,
+            m_hash: String::from("request"),
+            m: vec![],
+            signature: String::from(""),
+            from_peer_id: String::from(""),
+        };
+        let preprepare_5 = PrePrepare {
+            view: 1,
+            number: 10,
+            m_hash: String::from("request"),
+            m: vec![],
+            signature: String::from(""),
+            from_peer_id: String::from("1111"),
+        };
+
+        let viewchange_1_preprepares = vec![
+            MessageType::PrePrepare(preprepare_1),
+            MessageType::PrePrepare(preprepare_2),
+        ];
+        let viewchange_2_preprepares = vec![
+            MessageType::PrePrepare(preprepare_3),
+            MessageType::PrePrepare(preprepare_4),
+        ];
+        let viewchange_3_preprepares = vec![MessageType::PrePrepare(preprepare_5)];
+
+        let viewchange_1_proof_messages = ProofMessages {
+            preprepares: viewchange_1_preprepares,
+            prepares: vec![],
+        };
+        let viewchange_2_proof_messages = ProofMessages {
+            preprepares: viewchange_2_preprepares,
+            prepares: vec![],
+        };
+        let viewchange_3_proof_messages = ProofMessages {
+            preprepares: viewchange_3_preprepares,
+            prepares: vec![],
+        };
+
+        let viewchange_1 = ViewChange {
+            new_view: 2,
+            latest_stable_checkpoint: 10,
+            latest_stable_checkpoint_messages: vec![],
+            proof_messages: viewchange_1_proof_messages,
+            from_peer_id: String::from(""),
+            signature: String::from(""),
+        };
+        let viewchange_2 = ViewChange {
+            new_view: 2,
+            latest_stable_checkpoint: 10,
+            latest_stable_checkpoint_messages: vec![],
+            proof_messages: viewchange_2_proof_messages,
+            from_peer_id: String::from(""),
+            signature: String::from(""),
+        };
+        let viewchange_3 = ViewChange {
+            new_view: 2,
+            latest_stable_checkpoint: 10,
+            latest_stable_checkpoint_messages: vec![],
+            proof_messages: viewchange_3_proof_messages,
+            from_peer_id: String::from(""),
+            signature: String::from(""),
+        };
+
+        local_logs.record_message_handler(MessageType::ViewChange(viewchange_1));
+        local_logs.record_message_handler(MessageType::ViewChange(viewchange_2));
+        local_logs.record_message_handler(MessageType::ViewChange(viewchange_3));
+
+        let viewchanges = local_logs.get_viewchange_messages_by_view(2);
+        println!("Viewchanges: {:#?}", *viewchanges);
+
+        let new_preprepares = local_logs.create_newview_preprepare_messages(2, 4, 10);
+        println!("NewPreprepares: {:#?}", *new_preprepares);
+    }
+
+    #[test]
+    fn get_max_sequence_number_in_viewchange_by_view_works() {
+        let mut local_logs = LocalLogs::new();
+
+        let prepare_1 = Prepare {
+            view: 1,
+            number: 1,
+            m_hash: String::from(""),
+            from_peer_id: String::from(""),
+            signature: String::from(""),
+        };
+        let prepare_2 = Prepare {
+            view: 1,
+            number: 2,
+            m_hash: String::from(""),
+            from_peer_id: String::from(""),
+            signature: String::from(""),
+        };
+        let prepare_3 = Prepare {
+            view: 1,
+            number: 5,
+            m_hash: String::from(""),
+            from_peer_id: String::from(""),
+            signature: String::from(""),
+        };
+        let prepare_4 = Prepare {
+            view: 1,
+            number: 6,
+            m_hash: String::from(""),
+            from_peer_id: String::from(""),
+            signature: String::from(""),
+        };
+
+        let viewchange_1_prepares = vec![
+            MessageType::Prepare(prepare_1),
+            MessageType::Prepare(prepare_2),
+        ];
+        let viewchange_2_prepares = vec![
+            MessageType::Prepare(prepare_3),
+            MessageType::Prepare(prepare_4),
+        ];
+
+        let viewchange_1_proof_messages = ProofMessages {
+            preprepares: vec![],
+            prepares: viewchange_1_prepares,
+        };
+        let viewchange_2_proof_messages = ProofMessages {
+            preprepares: vec![],
+            prepares: viewchange_2_prepares,
+        };
+
+        let viewchange_1 = ViewChange {
+            new_view: 2,
+            latest_stable_checkpoint: 10,
+            latest_stable_checkpoint_messages: vec![],
+            proof_messages: viewchange_1_proof_messages,
+            from_peer_id: String::from(""),
+            signature: String::from(""),
+        };
+        let viewchange_2 = ViewChange {
+            new_view: 2,
+            latest_stable_checkpoint: 10,
+            latest_stable_checkpoint_messages: vec![],
+            proof_messages: viewchange_2_proof_messages,
+            from_peer_id: String::from(""),
+            signature: String::from(""),
+        };
+
+        local_logs.record_message_handler(MessageType::ViewChange(viewchange_1));
+        local_logs.record_message_handler(MessageType::ViewChange(viewchange_2));
+
+        let viewchanges = local_logs.get_viewchange_messages_by_view(2);
+        println!("Viewchanges: {:?}", *viewchanges);
+
+        let max = local_logs.get_max_sequence_number_in_viewchange_by_view(2);
+        println!("Max sequence number is {}", max);
     }
 }

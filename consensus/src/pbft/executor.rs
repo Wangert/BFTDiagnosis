@@ -1,10 +1,9 @@
 use std::{
+    collections::{HashMap, HashSet},
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use chrono::Local;
-use libp2p::futures::executor::block_on;
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
     Notify,
@@ -23,7 +22,6 @@ use super::{
         ViewChange,
     },
     state::{Mode, State},
-    timer::{timeout_tick, TimeoutState},
 };
 
 // Node consensus executor
@@ -76,15 +74,23 @@ impl Executor {
                 MessageType::CheckPoint(m) => {
                     self.handle_checkpoint(source, &m);
                 }
-                MessageType::ViewChange(m) => {}
-                MessageType::NewView(m) => {}
+                MessageType::ViewChange(m) => {
+                    self.handle_viewchange(source, &m).await;
+                }
+                MessageType::NewView(m) => {
+                    self.handle_newview(source, &m).await;
+                }
             },
             Mode::Abnormal => match message.msg_type {
                 MessageType::CheckPoint(m) => {
                     self.handle_checkpoint(source, &m);
                 }
-                MessageType::ViewChange(m) => {}
-                MessageType::NewView(m) => {}
+                MessageType::ViewChange(m) => {
+                    self.handle_viewchange(source, &m).await;
+                }
+                MessageType::NewView(m) => {
+                    self.handle_newview(source, &m).await;
+                }
                 _ => {}
             },
         }
@@ -98,16 +104,16 @@ impl Executor {
         let notify = self.viewchange_notify.clone();
         tokio::spawn(async move {
             loop {
-                //let now_time = Local::now().timestamp();
+                // Avoid broadcast viewchange messages again
+                if let Mode::Abnormal = *mode.lock().await {
+                    continue;
+                }
+
                 let current_requests_queue = requests_start.lock().await.clone();
                 let first_request = current_requests_queue.front();
                 if let Some(request) = first_request {
                     if request.1.elapsed() > timeout_duration {
-                        *mode.lock().await = Mode::Abnormal;
-                        let m = mode.lock().await.clone();
-                        println!("&&&&&&&&&&&&&&{:?}&&&&&&&&&&&&&&&", m);
                         println!("{} is timeout!", request.0);
-
                         notify.notify_one();
                     }
                 }
@@ -148,14 +154,29 @@ impl Executor {
         self.msg_tx.send(msg.to_vec()).await.unwrap();
     }
 
+    // Create a viewchange message based on the local storage messages
+    // And broadcast it to other nodes to enter the viewchange mode
     pub async fn broadcast_viewchange(&self) {
+        let mode = self.state.mode.clone();
+        // Avoid broadcast viewchange messages again
+        if let Mode::Abnormal = *mode.lock().await {
+            return;
+        }
+        // Switch to viewchange mode
+        *mode.lock().await = Mode::Abnormal;
+        let m = mode.lock().await.clone();
+        println!("&&&&&&&&&&&&&&{:?}&&&&&&&&&&&&&&&", m);
+
         let threshold = 2 * self.state.fault_tolerance_count;
-        let sequence_number = self.state.stable_checkpoint;
-        let latest_stable_checkpoint_messages = *self.local_logs.get_checkpoint_messages_by_sequence_number(sequence_number, threshold).clone();
+        let sequence_number = self.state.stable_checkpoint.0;
+        let latest_stable_checkpoint_messages = *self
+            .local_logs
+            .get_checkpoint_messages_by_sequence_number(sequence_number, threshold)
+            .clone();
         let proof_messages = *self.local_logs.get_proof_messages().await.clone();
         let viewchange = ViewChange {
             new_view: self.state.view + 1,
-            latest_stable_checkpoint: self.state.stable_checkpoint,
+            latest_stable_checkpoint: self.state.stable_checkpoint.0,
             latest_stable_checkpoint_messages,
             proof_messages,
             from_peer_id: String::from(""),
@@ -168,13 +189,32 @@ impl Executor {
         self.msg_tx.send(serialized_viewchange_msg).await.unwrap();
     }
 
-    pub async fn broadcast_newview(&self, msg: &[u8]) {
-        self.msg_tx.send(msg.to_vec()).await.unwrap();
+    // The primary node creates a newview message based on the local storage messages
+    // And broadcast it to other nodes to enter the next view
+    pub async fn broadcast_newview(&self, new_view: u64) {
+        let viewchanges = *self.local_logs.get_viewchange_messages_by_view(new_view);
+        let min = viewchanges.first().unwrap().latest_stable_checkpoint;
+        let max = self
+            .local_logs
+            .get_max_sequence_number_in_viewchange_by_view(new_view);
+        let preprepares = *self
+            .local_logs
+            .create_newview_preprepare_messages(new_view, min, max);
+
+        let newview = NewView {
+            view: new_view,
+            viewchanges,
+            preprepares,
+            signature: String::from(""),
+        };
+        let newview_msg = Message {
+            msg_type: MessageType::NewView(newview),
+        };
+        let serialized_newview_msg = coder::serialize_into_bytes(&newview_msg);
+        self.msg_tx.send(serialized_newview_msg).await.unwrap();
     }
 
-    /*
-        Handle the received REQUEST message
-    */ 
+    // Consensus node handles the received REQUEST message
     pub async fn handle_request(&mut self, r: &Request) {
         // verify request message(client signature)
 
@@ -220,14 +260,12 @@ impl Executor {
         self.broadcast_preprepare(&serialized_msg[..]).await;
     }
 
-    /*
-        Handle the received PREPREPARE message
-    */ 
+    // Consensus node handles the received PREPREPARE message
     pub async fn handle_preprepare(&mut self, source: &str, msg: &PrePrepare) {
         // verify preprepare message
         // check sequence number
-        let low = self.state.stable_checkpoint;
-        let high = self.state.stable_checkpoint + 100;
+        let low = self.state.stable_checkpoint.0;
+        let high = self.state.stable_checkpoint.0 + 100;
         if msg.number <= low || msg.number > high {
             eprintln!("Invalid preprepare message: {:?}", &msg);
             return;
@@ -288,9 +326,7 @@ impl Executor {
         self.local_logs.record_current_request(&msg.m_hash).await;
     }
 
-    /*
-        Handle the received PREPARE message
-    */
+    // Consensus node handles the received PREPARE message
     pub async fn handle_prepare(&mut self, source: &str, msg: &Prepare) {
         // check current request prepared state
         let phase_state = self.local_logs.get_request_phase_state(&msg.m_hash);
@@ -300,8 +336,8 @@ impl Executor {
 
         // verify prepare message
         // check sequence number
-        let low = self.state.stable_checkpoint;
-        let high = self.state.stable_checkpoint + 100;
+        let low = self.state.stable_checkpoint.0;
+        let high = self.state.stable_checkpoint.0 + 100;
         if msg.number <= low || msg.number > high {
             eprintln!("Invalid preprepare message: {:?}", &msg);
             return;
@@ -372,9 +408,7 @@ impl Executor {
         }
     }
 
-    /*
-        Handle the received COMMIT message
-     */
+    // Consensus node handles the received COMMIT message
     pub async fn handle_commit(&mut self, source: &str, msg: &Commit) {
         // check current request commited state
         let phase_state = self.local_logs.get_request_phase_state(&msg.m_hash);
@@ -384,8 +418,8 @@ impl Executor {
 
         // verify commit message
         // check sequence number
-        let low = self.state.stable_checkpoint;
-        let high = self.state.stable_checkpoint + 100;
+        let low = self.state.stable_checkpoint.0;
+        let high = self.state.stable_checkpoint.0 + 100;
         if msg.number <= low || msg.number > high {
             eprintln!("Invalid preprepare message: {:?}", &msg);
             return;
@@ -442,7 +476,7 @@ impl Executor {
             {
                 // broadcast checkpoint message
                 let checkpoint = CheckPoint {
-                    current_max_number: self.state.stable_checkpoint + STABLE_CHECKPOINT_DELTA,
+                    current_max_number: self.state.stable_checkpoint.0 + STABLE_CHECKPOINT_DELTA,
                     checkpoint_state_digest: self.state.checkpoint_state.clone(),
                     from_peer_id: String::from(""),
                     signature: String::from(""),
@@ -485,6 +519,7 @@ impl Executor {
         }
     }
 
+    // Client handles the recevied REPLY message
     pub fn handle_reply(&mut self, source: &str, msg: &Reply) {
         if let ClientState::Replied = self.state.client_state {
             return;
@@ -515,7 +550,10 @@ impl Executor {
         }
     }
 
+    // Consensus node handles the received CHECKPOINT message
     pub fn handle_checkpoint(&mut self, source: &str, msg: &CheckPoint) {
+        // verify signature
+
         let mut checkpoint_msg = msg.clone();
         checkpoint_msg.from_peer_id = source.to_string();
         self.local_logs
@@ -528,17 +566,238 @@ impl Executor {
         let threshold = 2 * self.state.fault_tolerance_count;
 
         if current_checkpoint_count as u64 == threshold {
-            self.state.stable_checkpoint = msg.current_max_number;
+            self.state.stable_checkpoint.0 = msg.current_max_number;
+            self.state.stable_checkpoint.1 = msg.checkpoint_state_digest.clone();
             // discard all pre-prepare, prepare, commit, checkpoint messages
             // with sequence number less than or equal to stable_checkpoint_number
             self.local_logs
-                .discard_messages_before_stable_checkpoint(self.state.stable_checkpoint);
-            
-            println!("【Current Stable Checkpoint】 is {}", self.state.stable_checkpoint);
+                .discard_messages_before_stable_checkpoint(self.state.stable_checkpoint.0);
+
+            println!(
+                "【Current Stable Checkpoint】 is {}",
+                self.state.stable_checkpoint.0
+            );
         }
     }
 
-    pub fn handle_viewchange(&mut self, source: &str, msg: &ViewChange) {}
+    // Consensus node handles the received VIEWCHANGE message
+    pub async fn handle_viewchange(&mut self, source: &str, msg: &ViewChange) {
+        // verify signature
 
-    pub fn handle_newview(&mut self, source: &str, msg: &NewView) {}
+        let new_view = msg.new_view;
+        if new_view <= self.state.view {
+            return;
+        }
+
+        let mut viewchange = msg.clone();
+        viewchange.from_peer_id = source.to_string();
+        // record viewchange message
+        self.local_logs
+            .record_message_handler(MessageType::ViewChange(viewchange));
+        let msg_count = self
+            .local_logs
+            .get_viewchange_messages_count_by_view(new_view);
+        let mode = *self.state.mode.lock().await;
+
+        // The current node has not detected the exception, but has received F +1 viewchange message.
+        // That is, the node also starts the viewchange, preventing the view switchover process from starting too late.
+        if msg_count as u64 > self.state.fault_tolerance_count
+            && match mode {
+                Mode::Abnormal => false,
+                Mode::Normal => true,
+            }
+        {
+            self.broadcast_viewchange().await;
+            return;
+        }
+
+        // When recieved 2f+1 viewchange, start viewchange timeout
+
+        // The current node is the primary node and has received 2f+1 viewchange messages
+        if self.state.is_primary && msg_count as u64 > 2 * self.state.fault_tolerance_count {
+            self.broadcast_newview(new_view).await;
+        }
+    }
+
+    // The replic handles a newview message from the primary
+    pub async fn handle_newview(&mut self, _source: &str, msg: &NewView) {
+        // verify newview message
+        if !self.verify_newview(msg) {
+            eprintln!("NewView messages is invalid!");
+            return;
+        }
+
+        // update view
+        self.state.view = msg.view;
+        // stop viewchange timeout
+
+        // clear the cache of unexecuted requests
+        self.local_logs.clear_current_request().await;
+        *self.state.mode.lock().await = Mode::Normal;
+
+        for preprepare in &msg.preprepares {
+            let request_key = preprepare.m_hash.clone();
+            // record preprepare message
+            let record_msg = preprepare.clone();
+            self.local_logs
+                .record_message_handler(MessageType::PrePrepare(record_msg));
+            let key_str = get_message_key(MessageType::PrePrepare(preprepare.clone()));
+
+            let msg_vec = self.local_logs.get_local_messages_by_hash(&key_str);
+            println!("###################Current PrePrepare Messages#################");
+            println!("{:?}", &msg_vec);
+            println!("###############################################################");
+
+            // create prepare message
+            let view = msg.view;
+            let seq_number = preprepare.number;
+            let m_hash = preprepare.m_hash.clone();
+            let signature = String::from("");
+            let prepare = Prepare {
+                view,
+                number: seq_number,
+                m_hash,
+                from_peer_id: String::from(""),
+                signature,
+            };
+
+            let prepare_msg = MessageType::Prepare(prepare);
+            let serialized_prepare_msg = coder::serialize_into_bytes(&prepare_msg);
+            self.broadcast_prepare(&serialized_prepare_msg).await;
+            self.local_logs.record_current_request(&request_key).await;
+        }
+    }
+
+    pub fn verify_preprepare(&self, _preprepare: &PrePrepare) -> bool {
+        // verify preprepare signature
+        todo!();
+    }
+
+    pub fn verify_newview(&self, newview: &NewView) -> bool {
+        // verify signature
+
+        // verify viewchanges
+        let viewchanges_valid = self.verify_viewchanges_in_newview(&newview.viewchanges);
+        // verify preprepares
+        let new_view = newview.view;
+        let preprepares_valid = self.verify_preprepares_in_newview(
+            &newview.viewchanges,
+            &newview.preprepares,
+            new_view,
+        );
+
+        viewchanges_valid && preprepares_valid
+    }
+
+    // Get the maximum sequence number based on the viewchange messages
+    pub fn get_max_sequence_number_by_viewchanges(&self, viewchanges: &[ViewChange]) -> u64 {
+        let mut max = 0 as u64;
+        for viewchange in viewchanges {
+            let mut prepare_messages_iter = viewchange.proof_messages.prepares.iter();
+            loop {
+                match prepare_messages_iter.next() {
+                    Some(MessageType::Prepare(prepare)) if prepare.number > max => {
+                        max = prepare.number
+                    }
+                    None => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        max
+    }
+
+    // Verify the validity of viewchange messages in the NEWVIEW message
+    pub fn verify_viewchanges_in_newview(&self, viewchanges: &[ViewChange]) -> bool {
+        let mut viewchange_msg_from_ids: HashSet<String> = HashSet::new();
+        viewchanges.iter().for_each(|v| {
+            if viewchange_msg_from_ids.contains(&v.from_peer_id) && self.verify_viewchange(v) {
+                viewchange_msg_from_ids.insert(v.from_peer_id.to_string());
+            }
+        });
+
+        viewchange_msg_from_ids.len() as u64 > 2 * self.state.fault_tolerance_count
+    }
+
+    // Verify the validity of preprepare messages in the NEWVIEW message.
+    // It verifies the correctness of preprepare messages
+    // by performing a computation similar to the one used
+    // by the primary to create preprepare messages.
+    pub fn verify_preprepares_in_newview(
+        &self,
+        viewchanges: &[ViewChange],
+        preprepares: &[PrePrepare],
+        new_view: u64,
+    ) -> bool {
+        let min = viewchanges.first().unwrap().latest_stable_checkpoint;
+        let max = self.get_max_sequence_number_by_viewchanges(viewchanges);
+
+        let mut preprepare_map: HashMap<u64, PrePrepare> = HashMap::new();
+        for viewchange in viewchanges {
+            let mut preprepare_message_iter = viewchange.proof_messages.preprepares.iter();
+            loop {
+                match preprepare_message_iter.next() {
+                    Some(MessageType::PrePrepare(preprepare))
+                        if !preprepare_map.contains_key(&preprepare.number) =>
+                    {
+                        preprepare_map.insert(preprepare.number, preprepare.clone());
+                    }
+                    None => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let recreated_preprepares = ((min + 1)..(max + 1))
+            .into_iter()
+            .map(|i| {
+                if let Some(preprepare) = preprepare_map.get(&i) {
+                    preprepare.clone()
+                } else {
+                    PrePrepare {
+                        view: new_view,
+                        number: i,
+                        m_hash: String::from("NULL"),
+                        m: vec![],
+                        signature: String::from(""),
+                        from_peer_id: String::from(""),
+                    }
+                }
+            })
+            .collect::<Vec<PrePrepare>>();
+
+        recreated_preprepares
+            .iter()
+            .zip(preprepares.iter())
+            .all(|(p1, p2)| *p1 == *p2)
+    }
+
+    // Verify the validity of a viewchange
+    pub fn verify_viewchange(&self, viewchange: &ViewChange) -> bool {
+        // verify viewchange signature
+
+        // verify every checkpoint
+        let mut checkpoint_msg_from_ids: HashSet<String> = HashSet::new();
+        viewchange
+            .latest_stable_checkpoint_messages
+            .iter()
+            .filter(|c| {
+                c.current_max_number == self.state.stable_checkpoint.0
+                    && c.checkpoint_state_digest
+                        .eq(&self.state.stable_checkpoint.1)
+            })
+            .for_each(|c| {
+                // Avoid the same id and verify checkpoint signature
+                if checkpoint_msg_from_ids.contains(&c.from_peer_id) && true {
+                    checkpoint_msg_from_ids.insert(c.from_peer_id.clone());
+                }
+            });
+
+        checkpoint_msg_from_ids.len() as u64 > 2 * self.state.fault_tolerance_count
+    }
 }

@@ -5,14 +5,12 @@ use std::{
     time::Duration,
 };
 
-use futures::executor::block_on;
 use libp2p::{
     gossipsub::{
         Gossipsub, GossipsubConfigBuilder, GossipsubMessage, IdentTopic, MessageAuthenticity,
         MessageId,
     },
     identity::Keypair,
-    kad::record::Key,
     mdns::{Mdns, MdnsConfig},
     Multiaddr, PeerId, Swarm,
 };
@@ -79,8 +77,6 @@ impl BaseSwarm {
             let topic = IdentTopic::new("client");
             gossipsub.subscribe(&topic).unwrap();
         }
-        
-        
 
         // create mdns
         let mdns = Mdns::new(MdnsConfig::default()).await?;
@@ -99,10 +95,7 @@ impl BaseSwarm {
         Ok(())
     }
 
-    pub fn start(
-        &mut self,
-        multiaddr: Multiaddr,
-    ) -> Result<(), Box<dyn Error>> {
+    pub fn start(&mut self, multiaddr: Multiaddr) -> Result<(), Box<dyn Error>> {
         let swarm = if let Some(swarm) = &mut self.swarm {
             swarm
         } else {

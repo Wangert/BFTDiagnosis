@@ -1,9 +1,4 @@
-
-use std::collections::HashMap;
-
-use serde::{Serialize, Deserialize};
-
-
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum MessageType {
@@ -31,7 +26,7 @@ pub struct Request {
     pub signature: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct PrePrepare {
     pub view: u64,
     pub number: u64,
@@ -92,16 +87,24 @@ pub struct ViewChange {
     pub new_view: u64,
     pub latest_stable_checkpoint: u64,
     pub latest_stable_checkpoint_messages: Vec<CheckPoint>,
-    pub proof_messages: Vec<MessageType>,
+    pub proof_messages: ProofMessages,
     pub from_peer_id: String,
     pub signature: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NewView {
-
+    pub view: u64,
+    pub viewchanges: Vec<ViewChange>,
+    pub preprepares: Vec<PrePrepare>,
+    pub signature: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProofMessages {
+    pub preprepares: Vec<MessageType>,
+    pub prepares: Vec<MessageType>,
+}
 
 #[cfg(test)]
 mod message_tests {
@@ -136,18 +139,17 @@ mod message_tests {
         let deserialized_msg: Message = coder::deserialize_for_bytes(str_msg.as_bytes());
         println!("Deserialized msg: {:?}", &deserialized_msg);
 
-
         let request = Request {
             operation: String::from("operation"),
             client_id: "client_id".as_bytes().to_vec(),
             timestamp: Local::now().timestamp().to_string(),
             signature: String::from("signature"),
         };
-    
+
         let msg_1 = Message {
             msg_type: MessageType::Request(request),
         };
-    
+
         let serialized_msg_1 = coder::serialize_into_bytes(&msg_1);
         let broadcast_msg_1 = std::str::from_utf8(&serialized_msg_1).unwrap();
 

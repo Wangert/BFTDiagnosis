@@ -1,8 +1,8 @@
-use std::{collections::HashMap, error::Error, sync::Arc};
+use std::{collections::HashMap, error::Error};
 
 use chrono::Local;
 use libp2p::{
-    futures::{future::ok, StreamExt},
+    futures::StreamExt,
     gossipsub::{GossipsubEvent, IdentTopic},
     mdns::MdnsEvent,
     swarm::SwarmEvent,
@@ -11,12 +11,14 @@ use libp2p::{
 use network::{
     p2p_protocols::{base_behaviour::OutEvent, unicast::behaviour::UnicastEvent},
     peer::Peer,
-    tcp::Tcp,
 };
-use tokio::{io::{AsyncReadExt, self, AsyncBufReadExt}, net::TcpStream, sync::Mutex};
-use utils::coder::{self, serialize_into_bytes, deserialize_for_bytes};
+use tokio::io::{self, AsyncBufReadExt};
+use utils::coder::{self, deserialize_for_bytes, serialize_into_bytes};
 
-use crate::pbft::{message::{MessageType, Request}, state::ClientState};
+use crate::pbft::{
+    message::{MessageType, Request},
+    state::ClientState,
+};
 
 use super::{executor::Executor, message::Message};
 
@@ -51,7 +53,6 @@ impl Node {
         } else {
             self.client_message_handler_start().await;
         }
-        
 
         Ok(())
     }
@@ -71,18 +72,21 @@ impl Node {
             timestamp: Local::now().timestamp().to_string(),
             signature: String::from("signature"),
         };
-    
+
         let msg = Message {
             msg_type: MessageType::Request(request),
         };
-    
+
         let serialized_msg = serialize_into_bytes(&msg);
         let send_msg = std::str::from_utf8(&serialized_msg).unwrap();
 
         let deserialized_msg: Message = deserialize_for_bytes(send_msg.as_bytes());
 
         println!("Deserialzed_msg: {:?}", &deserialized_msg);
-        swarm.behaviour_mut().unicast.send_message(&peer_id, send_msg);
+        swarm
+            .behaviour_mut()
+            .unicast
+            .send_message(&peer_id, send_msg);
     }
 
     pub async fn client_message_handler_start(&mut self) {
@@ -108,14 +112,14 @@ impl Node {
                             timestamp: Local::now().timestamp().to_string(),
                             signature: String::from("signature"),
                         };
-                    
+
                         let msg = Message {
                             msg_type: MessageType::Request(request),
                         };
-                    
+
                         let serialized_msg = serialize_into_bytes(&msg);
                         //let send_msg = std::str::from_utf8(&serialized_msg).unwrap();
-                
+
                         let deserialized_msg: Message = deserialize_for_bytes(&serialized_msg[..]);
 
                         println!("Deserialzed_msg: {:?}", &deserialized_msg);
