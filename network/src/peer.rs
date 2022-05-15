@@ -10,13 +10,9 @@ use libp2p::{
     swarm::SwarmEvent,
     Multiaddr, PeerId, mdns::MdnsEvent,
 };
-use std::{error::Error, sync::Arc};
+use std::{error::Error};
 use tokio::{
     io::{self, AsyncBufReadExt},
-    sync::{
-        mpsc::{Receiver, Sender},
-        Mutex,
-    },
 };
 
 pub struct Peer {

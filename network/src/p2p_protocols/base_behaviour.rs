@@ -1,7 +1,6 @@
 use libp2p::{
     gossipsub::{Gossipsub, GossipsubEvent},
     mdns::{Mdns, MdnsEvent},
-    swarm::NetworkBehaviourEventProcess,
     NetworkBehaviour,
 };
 

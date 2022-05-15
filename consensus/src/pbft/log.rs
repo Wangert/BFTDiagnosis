@@ -19,7 +19,7 @@ use super::{
 };
 
 // node's local logs in consensus process
-pub struct LocalLogs {
+pub struct ConsensusLog {
     pub requests: HashMap<u64, Request>,
     // storage preprepare, prepare and commit messages
     pub messages: HashMap<String, Vec<MessageType>>,
@@ -37,8 +37,14 @@ pub struct LocalLogs {
     pub current_requests: Arc<Mutex<VecDeque<(String, Instant)>>>,
 }
 
-impl LocalLogs {
-    pub fn new() -> LocalLogs {
+pub struct ControllerLog {
+    pub messages: HashMap<String, Vec<MessageType>>,
+    // record request consensus start timestamp
+    pub requests_instant: Arc<Mutex<VecDeque<(String, Instant)>>>,
+}
+
+impl ConsensusLog {
+    pub fn new() -> Self {
         let requests: HashMap<u64, Request> = HashMap::new();
         let messages: HashMap<String, Vec<MessageType>> = HashMap::new();
         let checkpoints: HashMap<(u64, String), Vec<CheckPoint>> = HashMap::new();
@@ -48,7 +54,7 @@ impl LocalLogs {
         let current_requests: Arc<Mutex<VecDeque<(String, Instant)>>> =
             Arc::new(Mutex::new(VecDeque::new()));
 
-        LocalLogs {
+        ConsensusLog {
             requests,
             messages,
             checkpoints,
@@ -364,8 +370,8 @@ impl LocalLogs {
                             number: i,
                             m_hash: String::from("NULL"),
                             m: vec![],
-                            signature: String::from(""),
-                            from_peer_id: String::from(""),
+                            signature: vec![],
+                            from_peer_id: vec![],
                         }
                     }
                 })
@@ -432,51 +438,55 @@ impl LocalLogs {
     }
 
     pub fn record_preprepare(&mut self, msg: &PrePrepare) {
-        let key_hash = common::get_message_key(MessageType::PrePrepare(msg.clone()));
+        let msg_type = MessageType::PrePrepare(msg.clone());
+        let key_hash = common::get_message_key(&msg_type);
 
         //println!("[Preprepare hash key]：{:?}", &key_hash);
 
         if let Some(msg_vec) = self.messages.get_mut(&key_hash) {
-            msg_vec.push(MessageType::PrePrepare(msg.clone()));
+            msg_vec.push(msg_type);
         } else {
-            let msg_vec = vec![MessageType::PrePrepare(msg.clone())];
+            let msg_vec = vec![msg_type];
             self.messages.insert(key_hash, msg_vec);
         }
     }
 
     pub fn record_prepare(&mut self, msg: &Prepare) {
-        let key_hash = common::get_message_key(MessageType::Prepare(msg.clone()));
+        let msg_type = MessageType::Prepare(msg.clone());
+        let key_hash = common::get_message_key(&msg_type);
 
         //println!("[Prepare hash key]：{:?}", &key_hash);
 
         if let Some(msg_vec) = self.messages.get_mut(&key_hash) {
-            msg_vec.push(MessageType::Prepare(msg.clone()));
+            msg_vec.push(msg_type);
         } else {
-            let msg_vec = vec![MessageType::Prepare(msg.clone())];
+            let msg_vec = vec![msg_type];
             self.messages.insert(key_hash, msg_vec);
         }
     }
 
     pub fn record_commit(&mut self, msg: &Commit) {
-        let key_hash = common::get_message_key(MessageType::Commit(msg.clone()));
+        let msg_type = MessageType::Commit(msg.clone());
+        let key_hash = common::get_message_key(&msg_type);
 
         //println!("[Preprepare hash key]：{:?}", &key_hash);
 
         if let Some(msg_vec) = self.messages.get_mut(&key_hash) {
-            msg_vec.push(MessageType::Commit(msg.clone()));
+            msg_vec.push(msg_type);
         } else {
-            let msg_vec = vec![MessageType::Commit(msg.clone())];
+            let msg_vec = vec![msg_type];
             self.messages.insert(key_hash, msg_vec);
         }
     }
 
     pub fn record_reply(&mut self, msg: &Reply) {
-        let key_hash = common::get_message_key(MessageType::Reply(msg.clone()));
+        let msg_type = MessageType::Reply(msg.clone());
+        let key_hash = common::get_message_key(&msg_type);
 
         if let Some(msg_vec) = self.messages.get_mut(&key_hash) {
-            msg_vec.push(MessageType::Reply(msg.clone()))
+            msg_vec.push(msg_type)
         } else {
-            let msg_vec = vec![MessageType::Reply(msg.clone())];
+            let msg_vec = vec![msg_type];
             self.messages.insert(key_hash, msg_vec);
         }
     }
@@ -502,55 +512,120 @@ impl LocalLogs {
     }
 }
 
+impl ControllerLog {
+    pub fn new() -> Self {
+        let messages: HashMap<String, Vec<MessageType>> = HashMap::new();
+        let requests_instant: Arc<Mutex<VecDeque<(String, Instant)>>> =
+            Arc::new(Mutex::new(VecDeque::new()));
+
+        Self {
+            messages,
+            requests_instant,
+        }
+    }
+
+    pub fn record_message_handler(&mut self, msg: MessageType) {
+        match msg {
+            MessageType::Request(request) => {
+                self.record_request(&request);
+            }
+            MessageType::Reply(reply) => {
+                self.record_reply(&reply);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn record_request(&mut self, msg: &Request) {
+        let msg_type = MessageType::Request(msg.clone());
+        let key_hash = common::get_message_key(&msg_type);
+
+        if let Some(msg_vec) = self.messages.get_mut(&key_hash) {
+            msg_vec.push(msg_type);
+        } else {
+            let msg_vec = vec![msg_type];
+            self.messages.insert(key_hash, msg_vec);
+        }
+    }
+
+    pub fn record_reply(&mut self, msg: &Reply) {
+        let msg_type = MessageType::Reply(msg.clone());
+        let key_hash = common::get_message_key(&msg_type);
+
+        if let Some(msg_vec) = self.messages.get_mut(&key_hash) {
+            msg_vec.push(msg_type)
+        } else {
+            let msg_vec = vec![msg_type];
+            self.messages.insert(key_hash, msg_vec);
+        }
+    }
+
+    pub fn get_local_messages_by_hash(&self, hash: &str) -> Box<Vec<MessageType>> {
+        if let Some(msg_vec) = self.messages.get(&hash.to_string()) {
+            Box::new(msg_vec.clone())
+        } else {
+            Box::new(vec![])
+        }
+    }
+
+    pub fn get_local_messages_count_by_hash(&self, hash: &str) -> usize {
+        if let Some(msg_vec) = self.messages.get(&hash.to_string()) {
+            msg_vec.len()
+        } else {
+            0
+        }
+    }
+}
+
 #[cfg(test)]
-mod local_logs_test {
+mod log_test {
     use crate::pbft::message::{MessageType, PrePrepare, Prepare, ProofMessages, ViewChange};
 
-    use super::LocalLogs;
+    use super::ConsensusLog;
 
     #[test]
     fn create_newview_preprepare_messages_works() {
-        let mut local_logs = LocalLogs::new();
+        let mut local_logs = ConsensusLog::new();
 
         let preprepare_1 = PrePrepare {
             view: 1,
             number: 4,
             m_hash: String::from("request"),
             m: vec![],
-            signature: String::from(""),
-            from_peer_id: String::from(""),
+            signature: vec![],
+            from_peer_id: vec![],
         };
         let preprepare_2 = PrePrepare {
             view: 1,
             number: 5,
             m_hash: String::from("request"),
             m: vec![],
-            signature: String::from(""),
-            from_peer_id: String::from(""),
+            signature: vec![],
+            from_peer_id: vec![],
         };
         let preprepare_3 = PrePrepare {
             view: 1,
             number: 9,
             m_hash: String::from("request"),
             m: vec![],
-            signature: String::from(""),
-            from_peer_id: String::from(""),
+            signature: vec![],
+            from_peer_id: vec![],
         };
         let preprepare_4 = PrePrepare {
             view: 1,
             number: 10,
             m_hash: String::from("request"),
             m: vec![],
-            signature: String::from(""),
-            from_peer_id: String::from(""),
+            signature: vec![],
+            from_peer_id: vec![],
         };
         let preprepare_5 = PrePrepare {
             view: 1,
             number: 10,
             m_hash: String::from("request"),
             m: vec![],
-            signature: String::from(""),
-            from_peer_id: String::from("1111"),
+            signature: vec![],
+            from_peer_id: vec![1],
         };
 
         let viewchange_1_preprepares = vec![
@@ -581,7 +656,7 @@ mod local_logs_test {
             latest_stable_checkpoint: 10,
             latest_stable_checkpoint_messages: vec![],
             proof_messages: viewchange_1_proof_messages,
-            from_peer_id: String::from(""),
+            from_peer_id: vec![],
             signature: String::from(""),
         };
         let viewchange_2 = ViewChange {
@@ -589,7 +664,7 @@ mod local_logs_test {
             latest_stable_checkpoint: 10,
             latest_stable_checkpoint_messages: vec![],
             proof_messages: viewchange_2_proof_messages,
-            from_peer_id: String::from(""),
+            from_peer_id: vec![],
             signature: String::from(""),
         };
         let viewchange_3 = ViewChange {
@@ -597,7 +672,7 @@ mod local_logs_test {
             latest_stable_checkpoint: 10,
             latest_stable_checkpoint_messages: vec![],
             proof_messages: viewchange_3_proof_messages,
-            from_peer_id: String::from(""),
+            from_peer_id: vec![],
             signature: String::from(""),
         };
 
@@ -614,35 +689,35 @@ mod local_logs_test {
 
     #[test]
     fn get_max_sequence_number_in_viewchange_by_view_works() {
-        let mut local_logs = LocalLogs::new();
+        let mut local_logs = ConsensusLog::new();
 
         let prepare_1 = Prepare {
             view: 1,
             number: 1,
             m_hash: String::from(""),
-            from_peer_id: String::from(""),
-            signature: String::from(""),
+            from_peer_id: vec![],
+            signature: vec![],
         };
         let prepare_2 = Prepare {
             view: 1,
             number: 2,
             m_hash: String::from(""),
-            from_peer_id: String::from(""),
-            signature: String::from(""),
+            from_peer_id: vec![],
+            signature: vec![],
         };
         let prepare_3 = Prepare {
             view: 1,
             number: 5,
             m_hash: String::from(""),
-            from_peer_id: String::from(""),
-            signature: String::from(""),
+            from_peer_id: vec![],
+            signature: vec![],
         };
         let prepare_4 = Prepare {
             view: 1,
             number: 6,
             m_hash: String::from(""),
-            from_peer_id: String::from(""),
-            signature: String::from(""),
+            from_peer_id: vec![],
+            signature: vec![],
         };
 
         let viewchange_1_prepares = vec![
@@ -668,7 +743,7 @@ mod local_logs_test {
             latest_stable_checkpoint: 10,
             latest_stable_checkpoint_messages: vec![],
             proof_messages: viewchange_1_proof_messages,
-            from_peer_id: String::from(""),
+            from_peer_id: vec![],
             signature: String::from(""),
         };
         let viewchange_2 = ViewChange {
@@ -676,7 +751,7 @@ mod local_logs_test {
             latest_stable_checkpoint: 10,
             latest_stable_checkpoint_messages: vec![],
             proof_messages: viewchange_2_proof_messages,
-            from_peer_id: String::from(""),
+            from_peer_id: vec![],
             signature: String::from(""),
         };
 

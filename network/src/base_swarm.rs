@@ -71,11 +71,15 @@ impl BaseSwarm {
         .expect("Gossipsub correct configuration");
 
         if is_consensus_node == true {
-            let topic = IdentTopic::new("consensus");
-            gossipsub.subscribe(&topic).unwrap();
+            let topic1 = IdentTopic::new("consensus");
+            gossipsub.subscribe(&topic1).unwrap();
+            let topic2 = IdentTopic::new("DistributePK");
+            gossipsub.subscribe(&topic2).unwrap();
         } else {
-            let topic = IdentTopic::new("client");
-            gossipsub.subscribe(&topic).unwrap();
+            let topic1 = IdentTopic::new("client");
+            gossipsub.subscribe(&topic1).unwrap();
+            let topic2 = IdentTopic::new("DistributePK");
+            gossipsub.subscribe(&topic2).unwrap();
         }
 
         // create mdns

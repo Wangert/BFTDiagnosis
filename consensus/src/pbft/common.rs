@@ -62,7 +62,7 @@ pub fn get_commit_key_by_request_hash(
 }
 
 // get message key
-pub fn get_message_key(msg_type: MessageType) -> String {
+pub fn get_message_key(msg_type: &MessageType) -> String {
     match msg_type {
         MessageType::Request(request) => {
             let serialized_request = coder::serialize_into_bytes(&request);
@@ -72,7 +72,7 @@ pub fn get_message_key(msg_type: MessageType) -> String {
             let mut key = vec![PRE_PREPARE_PREFIX];
             let mut view_vec = preprepare.view.to_be_bytes().to_vec();
             let mut number_vec = preprepare.number.to_be_bytes().to_vec();
-            let mut m_hash_vec = preprepare.m_hash.into_bytes();
+            let mut m_hash_vec = preprepare.m_hash.clone().into_bytes();
             key.append(&mut view_vec);
             key.append(&mut number_vec);
             key.append(&mut m_hash_vec);
@@ -83,7 +83,7 @@ pub fn get_message_key(msg_type: MessageType) -> String {
             let mut key = vec![PREPARE_PREFIX];
             let mut view_vec = prepare.view.to_be_bytes().to_vec();
             let mut number_vec = prepare.number.to_be_bytes().to_vec();
-            let mut m_hash_vec = prepare.m_hash.into_bytes();
+            let mut m_hash_vec = prepare.m_hash.clone().into_bytes();
             key.append(&mut view_vec);
             key.append(&mut number_vec);
             key.append(&mut m_hash_vec);
@@ -94,7 +94,7 @@ pub fn get_message_key(msg_type: MessageType) -> String {
             let mut key = vec![COMMIT_PREFIX];
             let mut view_vec = commit.view.to_be_bytes().to_vec();
             let mut number_vec = commit.number.to_be_bytes().to_vec();
-            let mut m_hash_vec = commit.m_hash.into_bytes();
+            let mut m_hash_vec = commit.m_hash.clone().into_bytes();
             key.append(&mut view_vec);
             key.append(&mut number_vec);
             key.append(&mut m_hash_vec);
@@ -103,11 +103,11 @@ pub fn get_message_key(msg_type: MessageType) -> String {
         }
         MessageType::Reply(reply) => {
             let mut key = vec![REPLY_PREFIX];
-            let mut client_id_vec = reply.client_id;
-            let mut timestamp_vec = reply.timestamp.into_bytes();
+            let mut client_id_vec = reply.client_id.clone();
+            let mut timestamp_vec = reply.timestamp.clone().into_bytes();
             let mut view_vec = reply.view.to_be_bytes().to_vec();
             let mut number_vec = reply.number.to_be_bytes().to_vec();
-            let mut result_vec = reply.result;
+            let mut result_vec = reply.result.clone();
             key.append(&mut client_id_vec);
             key.append(&mut timestamp_vec);
             key.append(&mut view_vec);

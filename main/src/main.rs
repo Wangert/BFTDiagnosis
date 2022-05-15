@@ -1,21 +1,14 @@
-use std::{error::Error, sync::Arc};
+use std::{error::Error};
 
-use chrono::prelude::*;
+
 use cli::args::Args;
 use consensus::pbft::{
-    self,
-    message::{Message, MessageType, Request},
-    node::Node,
+    node::ConsensusNode, controller_node::ControllerNode,
 };
 use network::peer::Peer;
 use structopt::StructOpt;
-use tokio::{
-    io::{self, AsyncBufReadExt, AsyncWriteExt},
-    net::TcpStream,
-    sync::{mpsc, Mutex},
-};
+
 use utils::{
-    coder::{deserialize_for_bytes, serialize_into_bytes},
     parse::into_ip4_tcp_multiaddr,
 };
 
@@ -29,12 +22,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let local_peer = Peer::new(swarm_addr);
 
 
-    let mut node = Node::new(Box::new(local_peer));
+    // let mut node = Node::new(Box::new(local_peer), &args.swarm_port.to_string());
 
     if is_consensus_node.eq("true") {
-        node.network_peer_start(true).await?;
+        let mut node = ConsensusNode::new(Box::new(local_peer), &args.swarm_port.to_string());
+        node.network_peer_start().await?;
     } else if is_consensus_node.eq("false") {
-        node.network_peer_start(false).await?;
+        let mut node = ControllerNode::new(Box::new(local_peer), &args.swarm_port.to_string());
+        node.network_peer_start().await?;
     } else {
         println!("consensus argument error!");
     }

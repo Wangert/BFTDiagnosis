@@ -4,11 +4,16 @@ use std::{
     time::Duration,
 };
 
+use libp2p::PeerId;
+use storage::database::LevelDB;
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
     Notify,
 };
-use utils::coder::{self, get_hash_str};
+use utils::{
+    coder::{self, get_hash_str},
+    crypto::eddsa::{EdDSAKeyPair, EdDSAPublicKey},
+};
 
 use crate::pbft::{
     common::{get_message_key, STABLE_CHECKPOINT_DELTA},
@@ -16,31 +21,46 @@ use crate::pbft::{
 };
 
 use super::{
-    local_logs::LocalLogs,
+    log::{ConsensusLog, ControllerLog},
     message::{
         CheckPoint, Commit, Message, MessageType, NewView, PrePrepare, Prepare, Reply, Request,
-        ViewChange,
+        ViewChange, PublicKey,
     },
-    state::{Mode, State},
+    state::{Mode, State, ControllerState},
 };
 
-// Node consensus executor
+// Consensus node executor
 pub struct Executor {
     pub state: State,
-    pub local_logs: Box<LocalLogs>,
+    pub log: Box<ConsensusLog>,
+    pub db: Box<LevelDB>,
+    pub keypair: Box<EdDSAKeyPair>,
     pub msg_tx: Sender<Vec<u8>>,
     pub msg_rx: Receiver<Vec<u8>>,
     pub viewchange_notify: Arc<Notify>,
     pub timeout_notify: Arc<Notify>,
 }
 
+// Controller node executor
+pub struct ControllerExecutor {
+    pub state: ControllerState,
+    pub log: Box<ControllerLog>,
+    pub db: Box<LevelDB>,
+    pub keypair: Box<EdDSAKeyPair>,
+    pub msg_tx: Sender<Vec<u8>>,
+    pub msg_rx: Receiver<Vec<u8>>,
+    pub timeout_notify: Arc<Notify>,
+}
+
 impl Executor {
-    pub fn new() -> Executor {
+    pub fn new(db_path: &str) -> Executor {
         let (msg_tx, msg_rx) = mpsc::channel::<Vec<u8>>(10);
 
         Executor {
             state: State::new(Duration::from_secs(5)),
-            local_logs: Box::new(LocalLogs::new()),
+            log: Box::new(ConsensusLog::new()),
+            db: Box::new(LevelDB::new(db_path)),
+            keypair: Box::new(EdDSAKeyPair::new()),
             msg_tx,
             msg_rx,
             viewchange_notify: Arc::new(Notify::new()),
@@ -48,7 +68,7 @@ impl Executor {
         }
     }
 
-    pub async fn pbft_message_handler(&mut self, source: &str, msg: &Vec<u8>) {
+    pub async fn message_handler(&mut self, current_peer_id: &[u8], msg: &Vec<u8>) {
         //if let Some(msg) = self.message_rx.recv().await {
         //let msg = msg.as_bytes();
         let message: Message = coder::deserialize_for_bytes(msg);
@@ -57,39 +77,45 @@ impl Executor {
         match current_mode {
             Mode::Normal => match message.msg_type {
                 MessageType::Request(m) => {
-                    self.handle_request(&m).await;
+                    self.handle_request(current_peer_id, &m).await;
                 }
                 MessageType::PrePrepare(m) => {
-                    self.handle_preprepare(source, &m).await;
+                    self.handle_preprepare(current_peer_id, &m).await;
                 }
                 MessageType::Prepare(m) => {
-                    self.handle_prepare(source, &m).await;
+                    self.handle_prepare(current_peer_id, &m).await;
                 }
                 MessageType::Commit(m) => {
-                    self.handle_commit(source, &m).await;
+                    self.handle_commit(current_peer_id, &m).await;
                 }
                 MessageType::Reply(m) => {
-                    self.handle_reply(source, &m);
+                    self.handle_reply(current_peer_id, &m);
                 }
                 MessageType::CheckPoint(m) => {
-                    self.handle_checkpoint(source, &m);
+                    self.handle_checkpoint(current_peer_id, &m);
                 }
                 MessageType::ViewChange(m) => {
-                    self.handle_viewchange(source, &m).await;
+                    self.handle_viewchange(current_peer_id, &m).await;
                 }
                 MessageType::NewView(m) => {
-                    self.handle_newview(source, &m).await;
+                    self.handle_newview(current_peer_id, &m).await;
+                }
+                MessageType::DistributePK => {
+                    self.distribute_public_key(current_peer_id).await;
+                }
+                MessageType::PublicKey(pk) => {
+                    self.storage_public_key_by_peer_id(&pk);
                 }
             },
             Mode::Abnormal => match message.msg_type {
                 MessageType::CheckPoint(m) => {
-                    self.handle_checkpoint(source, &m);
+                    self.handle_checkpoint(current_peer_id, &m);
                 }
                 MessageType::ViewChange(m) => {
-                    self.handle_viewchange(source, &m).await;
+                    self.handle_viewchange(current_peer_id, &m).await;
                 }
                 MessageType::NewView(m) => {
-                    self.handle_newview(source, &m).await;
+                    self.handle_newview(current_peer_id, &m).await;
                 }
                 _ => {}
             },
@@ -98,7 +124,7 @@ impl Executor {
 
     pub fn timeout_check_start(&self) {
         println!("==============【timeout check start】==============");
-        let requests_start = self.local_logs.current_requests.clone();
+        let requests_start = self.log.current_requests.clone();
         let timeout_duration = self.state.commited_timeout.duration;
         let mode = self.state.mode.clone();
         let notify = self.viewchange_notify.clone();
@@ -121,18 +147,36 @@ impl Executor {
         });
     }
 
-    // pub fn stable_checkpoint_update_start(&self) {
-    //     println!("==============【stable checkpoint update start】==============");
-    //     let count = self.state.current_commited_request_count.clone();
-    //     tokio::spawn(async move {
-    //         loop {
-    //             if *count.lock().await >= STABLE_CHECKPOINT_DELTA {
-    //                 // broadcast checkpoint message
-    //                 todo!();
-    //             }
-    //         }
-    //     });
-    // }
+    pub fn storage_public_key_by_peer_id(&mut self, public_key: &PublicKey) {
+        let value = public_key.pk.clone().0;
+        self.db.write(&public_key.from_peer_id, &value);
+
+        let read_value = self.db.read(&public_key.from_peer_id).unwrap();
+        let peer = PeerId::from_bytes(&public_key.from_peer_id).expect("peer id bytes error.");
+        println!("{}'s public key is {:?}", peer, read_value);
+    }
+
+    pub fn get_public_key_by_peer_id(&self, peer_id: &[u8]) -> Option<EdDSAPublicKey> {
+        let value = self.db.read(peer_id);
+        if let Some(pk_vec) = value {
+            Some(EdDSAPublicKey(pk_vec))
+        } else {
+            None
+        }
+    }
+
+    pub async fn distribute_public_key(&self, current_peer_id: &[u8]) {
+        let eddsa_pk = self.keypair.get_public_key();
+        let public_key = PublicKey {
+            pk: eddsa_pk,
+            from_peer_id: current_peer_id.to_vec(),
+        };
+        let msg = Message {
+            msg_type: MessageType::PublicKey(public_key),
+        };
+        let serialized_msg = coder::serialize_into_bytes(&msg);
+        self.msg_tx.send(serialized_msg).await.unwrap();
+    }
 
     pub async fn broadcast_preprepare(&self, msg: &[u8]) {
         self.msg_tx.send(msg.to_vec()).await.unwrap();
@@ -156,7 +200,7 @@ impl Executor {
 
     // Create a viewchange message based on the local storage messages
     // And broadcast it to other nodes to enter the viewchange mode
-    pub async fn broadcast_viewchange(&self) {
+    pub async fn broadcast_viewchange(&self, current_peer_id: &[u8]) {
         let mode = self.state.mode.clone();
         // Avoid broadcast viewchange messages again
         if let Mode::Abnormal = *mode.lock().await {
@@ -170,16 +214,16 @@ impl Executor {
         let threshold = 2 * self.state.fault_tolerance_count;
         let sequence_number = self.state.stable_checkpoint.0;
         let latest_stable_checkpoint_messages = *self
-            .local_logs
+            .log
             .get_checkpoint_messages_by_sequence_number(sequence_number, threshold)
             .clone();
-        let proof_messages = *self.local_logs.get_proof_messages().await.clone();
+        let proof_messages = *self.log.get_proof_messages().await.clone();
         let viewchange = ViewChange {
             new_view: self.state.view + 1,
             latest_stable_checkpoint: self.state.stable_checkpoint.0,
             latest_stable_checkpoint_messages,
             proof_messages,
-            from_peer_id: String::from(""),
+            from_peer_id: current_peer_id.to_vec(),
             signature: String::from(""),
         };
         let viewchange_msg = Message {
@@ -192,13 +236,13 @@ impl Executor {
     // The primary node creates a newview message based on the local storage messages
     // And broadcast it to other nodes to enter the next view
     pub async fn broadcast_newview(&self, new_view: u64) {
-        let viewchanges = *self.local_logs.get_viewchange_messages_by_view(new_view);
+        let viewchanges = *self.log.get_viewchange_messages_by_view(new_view);
         let min = viewchanges.first().unwrap().latest_stable_checkpoint;
         let max = self
-            .local_logs
+            .log
             .get_max_sequence_number_in_viewchange_by_view(new_view);
         let preprepares = *self
-            .local_logs
+            .log
             .create_newview_preprepare_messages(new_view, min, max);
 
         let newview = NewView {
@@ -215,7 +259,7 @@ impl Executor {
     }
 
     // Consensus node handles the received REQUEST message
-    pub async fn handle_request(&mut self, r: &Request) {
+    pub async fn handle_request(&mut self, current_peer_id: &[u8], r: &Request) {
         // verify request message(client signature)
 
         // generate number for request
@@ -227,31 +271,34 @@ impl Executor {
         let seq_number = self.state.current_sequence_number + 1;
 
         let serialized_request = coder::serialize_into_bytes(&r);
-        self.local_logs.record_request(seq_number, &r.clone());
+        self.log.record_request(seq_number, &r.clone());
         let request = self
-            .local_logs
+            .log
             .get_local_request_by_sequence_number(seq_number);
         println!("###################Current Request Messages#################");
         println!("{:?}", &request);
         println!("###############################################################");
 
         let m_hash = get_hash_str(&serialized_request);
-        // signature
-        let signature = String::from("");
 
-        //let id = self.peer_id.clone();
-        let preprepare = PrePrepare {
+        let mut preprepare = PrePrepare {
             view,
             number: seq_number,
             m_hash,
             m: serialized_request,
-            signature,
-            from_peer_id: String::from(""),
+            signature: vec![],
+            from_peer_id: current_peer_id.to_vec(),
         };
+
+        // signature
+        let preprepare_key = get_message_key(&MessageType::PrePrepare(preprepare.clone()));
+        let signature = self.keypair.sign(preprepare_key.as_bytes());
+        preprepare.signature = signature;
 
         let broadcast_msg = Message {
             msg_type: MessageType::PrePrepare(preprepare),
         };
+
 
         let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
         //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
@@ -261,8 +308,23 @@ impl Executor {
     }
 
     // Consensus node handles the received PREPREPARE message
-    pub async fn handle_preprepare(&mut self, source: &str, msg: &PrePrepare) {
-        // verify preprepare message
+    pub async fn handle_preprepare(&mut self, current_peer_id: &[u8], msg: &PrePrepare) {
+        // verify preprepare message signature
+        let key_str = get_message_key(&MessageType::PrePrepare(msg.clone()));
+        let source_pk = self.get_public_key_by_peer_id(&msg.from_peer_id);
+        let peer = PeerId::from_bytes(&msg.from_peer_id).expect("peer bytes error.");
+        if let Some(pk) = source_pk {
+            if pk.verify(&msg.signature, key_str.as_bytes()) {
+                println!("PREPREPARE: {}' signature is ok", &peer.to_string());
+            } else {
+                eprintln!("PREPREPARE: {}' signature is error", &peer.to_string());
+                return;
+            }
+        } else {
+            eprintln!("PREPREPARE: {}' public key is not found.", &peer.to_string());
+            return;
+        }
+
         // check sequence number
         let low = self.state.stable_checkpoint.0;
         let high = self.state.stable_checkpoint.0 + 100;
@@ -279,22 +341,19 @@ impl Executor {
         // record request message
         let serialized_request = msg.m.clone();
         let m: Request = coder::deserialize_for_bytes(&serialized_request[..]);
-        self.local_logs.record_request(msg.number, &m);
+        self.log.record_request(msg.number, &m);
         let request = self
-            .local_logs
+            .log
             .get_local_request_by_sequence_number(msg.number);
         println!("###################Current Request Messages#################");
         println!("{:?}", &request);
         println!("###############################################################");
 
         // record preprepare message
-        let mut record_msg = msg.clone();
-        record_msg.from_peer_id = source.to_string();
-        self.local_logs
-            .record_message_handler(MessageType::PrePrepare(record_msg));
-        let key_str = get_message_key(MessageType::PrePrepare(msg.clone()));
+        self.log
+            .record_message_handler(MessageType::PrePrepare(msg.clone()));
 
-        let msg_vec = self.local_logs.get_local_messages_by_hash(&key_str);
+        let msg_vec = self.log.get_local_messages_by_hash(&key_str);
         println!("###################Current PrePrepare Messages#################");
         println!("{:?}", &msg_vec);
         println!("###############################################################");
@@ -303,14 +362,19 @@ impl Executor {
         let view = self.state.view;
         let seq_number = msg.number;
         let m_hash = msg.m_hash.clone();
-        let signature = String::from("");
-        let prepare = Prepare {
+        
+        let mut prepare = Prepare {
             view,
             number: seq_number,
             m_hash,
-            from_peer_id: String::from(""),
-            signature,
+            from_peer_id: current_peer_id.to_vec(),
+            signature: vec![],
         };
+
+        // signature
+        let prepare_key = get_message_key(&MessageType::Prepare(prepare.clone()));
+        let signature = self.keypair.sign(prepare_key.as_bytes());
+        prepare.signature = signature;
 
         let broadcast_msg = Message {
             msg_type: MessageType::Prepare(prepare),
@@ -323,13 +387,29 @@ impl Executor {
         self.broadcast_prepare(&serialized_msg[..]).await;
 
         // record current request consensus start time
-        self.local_logs.record_current_request(&msg.m_hash).await;
+        self.log.record_current_request(&msg.m_hash).await;
     }
 
     // Consensus node handles the received PREPARE message
-    pub async fn handle_prepare(&mut self, source: &str, msg: &Prepare) {
+    pub async fn handle_prepare(&mut self, current_peer_id: &[u8], msg: &Prepare) {
+        // verify signature
+        let key_str = get_message_key(&MessageType::Prepare(msg.clone()));
+        let source_pk = self.get_public_key_by_peer_id(&msg.from_peer_id);
+        let peer = PeerId::from_bytes(&msg.from_peer_id).expect("peer bytes error.");
+        if let Some(pk) = source_pk {
+            if pk.verify(&msg.signature, key_str.as_bytes()) {
+                println!("PREPARE: {}' signature is ok", &peer.to_string());
+            } else {
+                eprintln!("PREPARE: {}' signature is error", &peer.to_string());
+                return;
+            }
+        } else {
+            println!("PREPARE: {}' public key is not found.", &peer.to_string());
+            return;
+        }
+        
         // check current request prepared state
-        let phase_state = self.local_logs.get_request_phase_state(&msg.m_hash);
+        let phase_state = self.log.get_request_phase_state(&msg.m_hash);
         if let Some(&PhaseState::Prepared) = phase_state {
             return;
         }
@@ -350,10 +430,10 @@ impl Executor {
 
         // check m hash
         let m = self
-            .local_logs
+            .log
             .get_local_request_by_sequence_number(msg.number);
         if let Some(m) = m {
-            let request_hash = get_message_key(MessageType::Request(m.clone()));
+            let request_hash = get_message_key(&MessageType::Request(m.clone()));
             if request_hash.ne(&msg.m_hash) {
                 eprintln!("Request hash error!");
                 return;
@@ -364,22 +444,19 @@ impl Executor {
         }
 
         // record message
-        let mut record_msg = msg.clone();
-        record_msg.from_peer_id = source.to_string();
-        self.local_logs
-            .record_message_handler(MessageType::Prepare(record_msg));
+        self.log
+            .record_message_handler(MessageType::Prepare(msg.clone()));
 
-        let key_str = get_message_key(MessageType::Prepare(msg.clone()));
-        let msg_vec = self.local_logs.get_local_messages_by_hash(&key_str);
+        let msg_vec = self.log.get_local_messages_by_hash(&key_str);
         println!("###################Current Prepare Messages#################");
         println!("{:?}", &msg_vec);
         println!("###############################################################");
 
         // check 2f+1 prepare messages (include current node)
-        let current_count = self.local_logs.get_local_messages_count_by_hash(&key_str);
+        let current_count = self.log.get_local_messages_count_by_hash(&key_str);
         let threshold = 2 * self.state.fault_tolerance_count;
         if current_count as u64 == threshold {
-            self.local_logs
+            self.log
                 .update_request_phase_state(&msg.m_hash, PhaseState::Prepared);
             //self.state.phase_state = PhaseState::Prepared;
             println!("【Prepare message to 2f+1, send commit message】");
@@ -387,14 +464,18 @@ impl Executor {
             let view = self.state.view;
             let seq_number = msg.number;
             let m_hash = msg.m_hash.clone();
-            let signature = String::from("");
-            let commit = Commit {
+            let mut commit = Commit {
                 view,
                 number: seq_number,
                 m_hash,
-                from_peer_id: String::from(""),
-                signature,
+                from_peer_id: current_peer_id.to_vec(),
+                signature: vec![],
             };
+
+            // signature
+            let commit_key = get_message_key(&MessageType::Commit(commit.clone()));
+            let signature = self.keypair.sign(commit_key.as_bytes());
+            commit.signature = signature;
 
             let broadcast_msg = Message {
                 msg_type: MessageType::Commit(commit),
@@ -409,9 +490,25 @@ impl Executor {
     }
 
     // Consensus node handles the received COMMIT message
-    pub async fn handle_commit(&mut self, source: &str, msg: &Commit) {
+    pub async fn handle_commit(&mut self, current_peer_id: &[u8], msg: &Commit) {
+        // verify signature
+        let key_str = get_message_key(&MessageType::Commit(msg.clone()));
+        let source_pk = self.get_public_key_by_peer_id(&msg.from_peer_id);
+        let peer = PeerId::from_bytes(&msg.from_peer_id).expect("peer bytes error.");
+        if let Some(pk) = source_pk {
+            if pk.verify(&msg.signature, key_str.as_bytes()) {
+                println!("COMMIT: {}' signature is ok", &peer.to_string());
+            } else {
+                eprintln!("COMMIT: {}' signature is error", &peer.to_string());
+                return;
+            }
+        } else {
+            eprintln!("COMMIT: {}' public key is not found.", &peer.to_string());
+            return;
+        }
+        
         // check current request commited state
-        let phase_state = self.local_logs.get_request_phase_state(&msg.m_hash);
+        let phase_state = self.log.get_request_phase_state(&msg.m_hash);
         if let Some(&PhaseState::Commited) = phase_state {
             return;
         }
@@ -432,7 +529,7 @@ impl Executor {
 
         // check m hash
         let m = self
-            .local_logs
+            .log
             .get_local_request_by_sequence_number(msg.number);
         let m = if let Some(m) = m {
             m.clone()
@@ -442,32 +539,30 @@ impl Executor {
         };
 
         // check m hash
-        let request_hash = get_message_key(MessageType::Request(m.clone()));
+        let request_hash = get_message_key(&MessageType::Request(m.clone()));
         if request_hash.ne(&msg.m_hash) {
             eprintln!("Request hash error!");
             return;
         }
 
         // record message
-        let mut record_msg = msg.clone();
-        record_msg.from_peer_id = source.to_string();
-        self.local_logs
-            .record_message_handler(MessageType::Commit(record_msg));
+        self.log
+            .record_message_handler(MessageType::Commit(msg.clone()));
 
-        let key_str = get_message_key(MessageType::Commit(msg.clone()));
-        let msg_vec = self.local_logs.get_local_messages_by_hash(&key_str);
+        let key_str = get_message_key(&MessageType::Commit(msg.clone()));
+        let msg_vec = self.log.get_local_messages_by_hash(&key_str);
         println!("###################Current Commit Messages#################");
         println!("{:?}", &msg_vec);
         println!("###############################################################");
 
         // check 2f+1 commit
-        let current_count = self.local_logs.get_local_messages_count_by_hash(&key_str);
+        let current_count = self.log.get_local_messages_count_by_hash(&key_str);
         let threshold = 2 * self.state.fault_tolerance_count;
 
         if current_count as u64 == threshold {
             // update checkpoint relate information
             self.state.update_checkpoint_state(&msg.m_hash);
-            self.local_logs.remove_commited_request().await;
+            self.log.remove_commited_request().await;
             *self.state.current_commited_request_count.lock().await += 1;
             let current_commited_request_count =
                 *self.state.current_commited_request_count.lock().await;
@@ -478,7 +573,7 @@ impl Executor {
                 let checkpoint = CheckPoint {
                     current_max_number: self.state.stable_checkpoint.0 + STABLE_CHECKPOINT_DELTA,
                     checkpoint_state_digest: self.state.checkpoint_state.clone(),
-                    from_peer_id: String::from(""),
+                    from_peer_id: current_peer_id.to_vec(),
                     signature: String::from(""),
                 };
                 let checkpoint_msg = Message {
@@ -489,27 +584,31 @@ impl Executor {
                     .await;
             }
 
-            self.local_logs
+            self.log
                 .update_request_phase_state(&msg.m_hash, PhaseState::Commited);
             //self.state.phase_state = PhaseState::Commited;
             println!("【Commit message to 2f+1, send reply message】");
             // create reply message
             let view = self.state.view;
             let seq_number = msg.number;
-            let signature = String::from("");
-
             let client_id = m.client_id;
             let timestamp = m.timestamp;
 
-            let reply = Reply {
+            let mut reply = Reply {
                 client_id,
                 timestamp,
                 number: seq_number,
-                from_peer_id: String::from(""),
-                signature,
+                from_peer_id: current_peer_id.to_vec(),
+                signature: vec![],
                 result: "ok!".as_bytes().to_vec(),
                 view,
             };
+
+            // signature
+            let reply_key = get_message_key(&MessageType::Reply(reply.clone()));
+            let signature = self.keypair.sign(reply_key.as_bytes());
+            reply.signature = signature;
+
             let broadcast_msg = Message {
                 msg_type: MessageType::Reply(reply),
             };
@@ -520,26 +619,38 @@ impl Executor {
     }
 
     // Client handles the recevied REPLY message
-    pub fn handle_reply(&mut self, source: &str, msg: &Reply) {
+    pub fn handle_reply(&mut self, _current_peer_id: &[u8], msg: &Reply) {
         if let ClientState::Replied = self.state.client_state {
             return;
         }
         // verify signature
+        let key_str = get_message_key(&MessageType::Reply(msg.clone()));
+        let source_pk = self.get_public_key_by_peer_id(&msg.from_peer_id);
+        let peer = PeerId::from_bytes(&msg.from_peer_id).expect("peer bytes error.");
+        if let Some(pk) = source_pk {
+            if pk.verify(&msg.signature, key_str.as_bytes()) {
+                println!("REPLY: {}' signature is ok", &peer.to_string());
+            } else {
+                eprintln!("REPLY: {}' signature is error", &peer.to_string());
+                return;
+                
+            }
+        } else {
+            eprintln!("REPLY: {}' public key is not found.", &peer.to_string());
+            return;
+        }
 
         // record reply
-        let mut record_msg = msg.clone();
-        record_msg.from_peer_id = source.to_string();
-
-        self.local_logs
-            .record_message_handler(MessageType::Reply(record_msg));
-        let key_str = get_message_key(MessageType::Reply(msg.clone()));
-        let msg_vec = self.local_logs.get_local_messages_by_hash(&key_str);
+        self.log
+            .record_message_handler(MessageType::Reply(msg.clone()));
+        let key_str = get_message_key(&MessageType::Reply(msg.clone()));
+        let msg_vec = self.log.get_local_messages_by_hash(&key_str);
         println!("###################Current Reply Messages#################");
         println!("{:?}", &msg_vec);
         println!("###############################################################");
 
         // check f+1
-        let current_count = self.local_logs.get_local_messages_count_by_hash(&key_str);
+        let current_count = self.log.get_local_messages_count_by_hash(&key_str);
         let reply_threshold = self.state.fault_tolerance_count + 1;
         if current_count as u64 == reply_threshold {
             self.state.client_state = ClientState::Replied;
@@ -551,17 +662,15 @@ impl Executor {
     }
 
     // Consensus node handles the received CHECKPOINT message
-    pub fn handle_checkpoint(&mut self, source: &str, msg: &CheckPoint) {
+    pub fn handle_checkpoint(&mut self, _current_peer_id: &[u8], msg: &CheckPoint) {
         // verify signature
 
-        let mut checkpoint_msg = msg.clone();
-        checkpoint_msg.from_peer_id = source.to_string();
-        self.local_logs
-            .record_message_handler(MessageType::CheckPoint(checkpoint_msg));
+        self.log
+            .record_message_handler(MessageType::CheckPoint(msg.clone()));
 
         // check 2f+1 the same checkpoint message
         let current_checkpoint_count = self
-            .local_logs
+            .log
             .get_checkpoint_count(msg.current_max_number, &msg.checkpoint_state_digest);
         let threshold = 2 * self.state.fault_tolerance_count;
 
@@ -570,7 +679,7 @@ impl Executor {
             self.state.stable_checkpoint.1 = msg.checkpoint_state_digest.clone();
             // discard all pre-prepare, prepare, commit, checkpoint messages
             // with sequence number less than or equal to stable_checkpoint_number
-            self.local_logs
+            self.log
                 .discard_messages_before_stable_checkpoint(self.state.stable_checkpoint.0);
 
             println!(
@@ -581,7 +690,7 @@ impl Executor {
     }
 
     // Consensus node handles the received VIEWCHANGE message
-    pub async fn handle_viewchange(&mut self, source: &str, msg: &ViewChange) {
+    pub async fn handle_viewchange(&mut self, current_peer_id: &[u8], msg: &ViewChange) {
         // verify signature
 
         let new_view = msg.new_view;
@@ -589,13 +698,11 @@ impl Executor {
             return;
         }
 
-        let mut viewchange = msg.clone();
-        viewchange.from_peer_id = source.to_string();
         // record viewchange message
-        self.local_logs
-            .record_message_handler(MessageType::ViewChange(viewchange));
+        self.log
+            .record_message_handler(MessageType::ViewChange(msg.clone()));
         let msg_count = self
-            .local_logs
+            .log
             .get_viewchange_messages_count_by_view(new_view);
         let mode = *self.state.mode.lock().await;
 
@@ -607,7 +714,7 @@ impl Executor {
                 Mode::Normal => true,
             }
         {
-            self.broadcast_viewchange().await;
+            self.broadcast_viewchange(current_peer_id).await;
             return;
         }
 
@@ -620,7 +727,7 @@ impl Executor {
     }
 
     // The replic handles a newview message from the primary
-    pub async fn handle_newview(&mut self, _source: &str, msg: &NewView) {
+    pub async fn handle_newview(&mut self, current_peer_id: &[u8], msg: &NewView) {
         // verify newview message
         if !self.verify_newview(msg) {
             eprintln!("NewView messages is invalid!");
@@ -632,18 +739,18 @@ impl Executor {
         // stop viewchange timeout
 
         // clear the cache of unexecuted requests
-        self.local_logs.clear_current_request().await;
+        self.log.clear_current_request().await;
         *self.state.mode.lock().await = Mode::Normal;
 
         for preprepare in &msg.preprepares {
             let request_key = preprepare.m_hash.clone();
             // record preprepare message
             let record_msg = preprepare.clone();
-            self.local_logs
+            self.log
                 .record_message_handler(MessageType::PrePrepare(record_msg));
-            let key_str = get_message_key(MessageType::PrePrepare(preprepare.clone()));
+            let key_str = get_message_key(&MessageType::PrePrepare(preprepare.clone()));
 
-            let msg_vec = self.local_logs.get_local_messages_by_hash(&key_str);
+            let msg_vec = self.log.get_local_messages_by_hash(&key_str);
             println!("###################Current PrePrepare Messages#################");
             println!("{:?}", &msg_vec);
             println!("###############################################################");
@@ -652,19 +759,19 @@ impl Executor {
             let view = msg.view;
             let seq_number = preprepare.number;
             let m_hash = preprepare.m_hash.clone();
-            let signature = String::from("");
+            let signature = vec![];
             let prepare = Prepare {
                 view,
                 number: seq_number,
                 m_hash,
-                from_peer_id: String::from(""),
+                from_peer_id: current_peer_id.to_vec(),
                 signature,
             };
 
             let prepare_msg = MessageType::Prepare(prepare);
             let serialized_prepare_msg = coder::serialize_into_bytes(&prepare_msg);
             self.broadcast_prepare(&serialized_prepare_msg).await;
-            self.local_logs.record_current_request(&request_key).await;
+            self.log.record_current_request(&request_key).await;
         }
     }
 
@@ -712,10 +819,10 @@ impl Executor {
 
     // Verify the validity of viewchange messages in the NEWVIEW message
     pub fn verify_viewchanges_in_newview(&self, viewchanges: &[ViewChange]) -> bool {
-        let mut viewchange_msg_from_ids: HashSet<String> = HashSet::new();
+        let mut viewchange_msg_from_ids: HashSet<Vec<u8>> = HashSet::new();
         viewchanges.iter().for_each(|v| {
             if viewchange_msg_from_ids.contains(&v.from_peer_id) && self.verify_viewchange(v) {
-                viewchange_msg_from_ids.insert(v.from_peer_id.to_string());
+                viewchange_msg_from_ids.insert(v.from_peer_id.clone());
             }
         });
 
@@ -764,8 +871,8 @@ impl Executor {
                         number: i,
                         m_hash: String::from("NULL"),
                         m: vec![],
-                        signature: String::from(""),
-                        from_peer_id: String::from(""),
+                        signature: vec![],
+                        from_peer_id: vec![],
                     }
                 }
             })
@@ -782,7 +889,7 @@ impl Executor {
         // verify viewchange signature
 
         // verify every checkpoint
-        let mut checkpoint_msg_from_ids: HashSet<String> = HashSet::new();
+        let mut checkpoint_msg_from_ids: HashSet<Vec<u8>> = HashSet::new();
         viewchange
             .latest_stable_checkpoint_messages
             .iter()
@@ -799,5 +906,94 @@ impl Executor {
             });
 
         checkpoint_msg_from_ids.len() as u64 > 2 * self.state.fault_tolerance_count
+    }
+}
+
+impl ControllerExecutor {
+    pub fn new(db_path: &str) -> ControllerExecutor {
+        let (msg_tx, msg_rx) = mpsc::channel::<Vec<u8>>(10);
+
+        ControllerExecutor {
+            state: ControllerState::new(),
+            log: Box::new(ControllerLog::new()),
+            db: Box::new(LevelDB::new(db_path)),
+            keypair: Box::new(EdDSAKeyPair::new()),
+            msg_tx,
+            msg_rx,
+            timeout_notify: Arc::new(Notify::new()),
+        }
+    }
+
+    pub async fn message_handler(&mut self, _current_peer_id: &[u8], msg: &Vec<u8>) {
+        let message: Message = coder::deserialize_for_bytes(msg);
+        match message.msg_type {
+                MessageType::Reply(m) => {
+                    self.handle_reply(&m);
+                }
+                MessageType::PublicKey(pk) => {
+                    self.storage_public_key_by_peer_id(&pk);
+                }
+                _ => {}
+            }
+    }
+
+    pub fn storage_public_key_by_peer_id(&mut self, public_key: &PublicKey) {
+        let value = public_key.pk.clone().0;
+        self.db.write(&public_key.from_peer_id, &value);
+
+        let read_value = self.db.read(&public_key.from_peer_id).unwrap();
+        let peer = PeerId::from_bytes(&public_key.from_peer_id).expect("peer id bytes error.");
+        println!("{}'s public key is {:?}", peer, read_value);
+    }
+
+    pub fn get_public_key_by_peer_id(&self, peer_id: &[u8]) -> Option<EdDSAPublicKey> {
+        let value = self.db.read(peer_id);
+        if let Some(pk_vec) = value {
+            Some(EdDSAPublicKey(pk_vec))
+        } else {
+            None
+        }
+    }
+
+    pub fn handle_reply(&mut self, msg: &Reply) {
+        if let ClientState::Replied = self.state.client_state {
+            return;
+        }
+        // verify signature
+        let key_str = get_message_key(&MessageType::Reply(msg.clone()));
+        let source_pk = self.get_public_key_by_peer_id(&msg.from_peer_id);
+        let peer = PeerId::from_bytes(&msg.from_peer_id).expect("peer bytes error.");
+        if let Some(pk) = source_pk {
+            if pk.verify(&msg.signature, key_str.as_bytes()) {
+                println!("REPLY: {}' signature is ok", &peer.to_string());
+            } else {
+                eprintln!("REPLY: {}' signature is error", &peer.to_string());
+                return;
+                
+            }
+        } else {
+            eprintln!("REPLY: {}' public key is not found.", &peer.to_string());
+            return;
+        }
+
+        // record reply
+        self.log
+            .record_message_handler(MessageType::Reply(msg.clone()));
+        let key_str = get_message_key(&MessageType::Reply(msg.clone()));
+        let msg_vec = self.log.get_local_messages_by_hash(&key_str);
+        println!("###################Current Reply Messages#################");
+        println!("{:?}", &msg_vec);
+        println!("###############################################################");
+
+        // check f+1
+        let current_count = self.log.get_local_messages_count_by_hash(&key_str);
+        let reply_threshold = self.state.fault_tolerance_count + 1;
+        if current_count as u64 == reply_threshold {
+            self.state.client_state = ClientState::Replied;
+
+            let result_str = std::str::from_utf8(&msg.result[..]).unwrap();
+            println!("###############################################################");
+            println!("Request consesnus successful, result is {}", result_str);
+        }
     }
 }

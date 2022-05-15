@@ -25,6 +25,11 @@ pub struct State {
     pub commited_timeout: Timeout,
 }
 
+pub struct ControllerState {
+    pub client_state: ClientState,
+    pub fault_tolerance_count: u64,
+}
+
 pub struct StableCheckpoint(pub u64, pub String);
 
 #[derive(Debug, Clone, Copy)]
@@ -95,6 +100,15 @@ impl State {
     //         tokio::spawn(timeout_tick(duration, notify, viewchange_closure));
     //     }
     // }
+}
+
+impl ControllerState {
+    pub fn new() -> Self {
+        Self {
+            client_state: ClientState::NotRequest,
+            fault_tolerance_count: 1,
+        }
+    }
 }
 
 #[cfg(test)]

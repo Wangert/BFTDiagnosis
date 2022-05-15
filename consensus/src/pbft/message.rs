@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use utils::crypto::eddsa::EdDSAPublicKey;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum MessageType {
@@ -10,6 +11,8 @@ pub enum MessageType {
     CheckPoint(CheckPoint),
     ViewChange(ViewChange),
     NewView(NewView),
+    PublicKey(PublicKey),
+    DistributePK,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -32,8 +35,8 @@ pub struct PrePrepare {
     pub number: u64,
     pub m_hash: String,
     pub m: Vec<u8>,
-    pub signature: String,
-    pub from_peer_id: String,
+    pub signature: Vec<u8>,
+    pub from_peer_id: Vec<u8>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -41,8 +44,8 @@ pub struct Prepare {
     pub view: u64,
     pub number: u64,
     pub m_hash: String,
-    pub from_peer_id: String,
-    pub signature: String,
+    pub from_peer_id: Vec<u8>,
+    pub signature: Vec<u8>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -50,8 +53,8 @@ pub struct Commit {
     pub view: u64,
     pub number: u64,
     pub m_hash: String,
-    pub from_peer_id: String,
-    pub signature: String,
+    pub from_peer_id: Vec<u8>,
+    pub signature: Vec<u8>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -60,8 +63,8 @@ pub struct Reply {
     pub timestamp: String,
     pub view: u64,
     pub number: u64,
-    pub from_peer_id: String,
-    pub signature: String,
+    pub from_peer_id: Vec<u8>,
+    pub signature: Vec<u8>,
     pub result: Vec<u8>,
 }
 
@@ -78,7 +81,7 @@ pub struct MetaReply {
 pub struct CheckPoint {
     pub current_max_number: u64,
     pub checkpoint_state_digest: String,
-    pub from_peer_id: String,
+    pub from_peer_id: Vec<u8>,
     pub signature: String,
 }
 
@@ -88,7 +91,7 @@ pub struct ViewChange {
     pub latest_stable_checkpoint: u64,
     pub latest_stable_checkpoint_messages: Vec<CheckPoint>,
     pub proof_messages: ProofMessages,
-    pub from_peer_id: String,
+    pub from_peer_id: Vec<u8>,
     pub signature: String,
 }
 
@@ -104,6 +107,12 @@ pub struct NewView {
 pub struct ProofMessages {
     pub preprepares: Vec<MessageType>,
     pub prepares: Vec<MessageType>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PublicKey {
+    pub pk: EdDSAPublicKey,
+    pub from_peer_id: Vec<u8>,
 }
 
 #[cfg(test)]
@@ -124,8 +133,8 @@ mod message_tests {
             number: 1,
             m_hash,
             m: value,
-            signature: String::from("signature"),
-            from_peer_id: String::from(""),
+            signature: vec![1],
+            from_peer_id: vec![],
         };
 
         let msg = Message {
