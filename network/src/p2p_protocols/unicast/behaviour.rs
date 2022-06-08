@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{hash_map::DefaultHasher, HashSet, VecDeque},
     task::Poll,
     time::Duration,
 };
@@ -99,7 +99,7 @@ impl Unicast {
     }
 
     #[inline]
-    pub fn remove_node_from_partial_view(&mut self, peer_id: &PeerId) {
+    pub fn remove_node_from_partial_view(&mut self, _peer_id: &PeerId) {
         //self.can_send_peers.remove(peer_id);
     }
 
@@ -110,8 +110,19 @@ impl Unicast {
             sequence_number: rand::random::<[u8; 20]>().to_vec(),
         };
 
+        // println!("Send_message ok");
+
+        // println!(
+        //     "can_send_peers {}",
+        //     self.can_send_peers.contains(recv_peer_id)
+        // );
+        // println!(
+        //     "connected_peers {}",
+        //     self.connected_peers.contains(recv_peer_id)
+        // );
         if self.can_send_peers.contains(recv_peer_id) && self.connected_peers.contains(recv_peer_id)
         {
+            //println!("Send_message ok");
             self.events
                 .push_back(NetworkBehaviourAction::NotifyHandler {
                     peer_id: *recv_peer_id,
@@ -172,6 +183,8 @@ impl NetworkBehaviour for Unicast {
         if other_established > 0 {
             return;
         }
+
+        println!("{} connected!", id.to_string());
         self.connected_peers.insert(*id);
     }
 

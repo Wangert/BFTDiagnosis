@@ -1,4 +1,5 @@
 pub mod pbft;
+pub mod hotstuff;
 
 #[cfg(test)]
 mod tests {

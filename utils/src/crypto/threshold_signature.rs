@@ -1,14 +1,49 @@
 use std::collections::HashMap;
 
-use threshold_crypto::{
+use serde::{Serialize, Deserialize};
+use threshold_crypto::{serde_impl::SerdeSecret,
     PublicKey, PublicKeySet, PublicKeyShare, SecretKeySet, SecretKeyShare, Signature,
     SignatureShare,
 };
 
+
+
 pub struct ThresholdSigKeys {
-    pub keypair_shares: Box<Vec<(u64, SecretKeyShare, PublicKeyShare)>>,
+    pub keypair_shares: Vec<(u64, SerdeSecret<SecretKeyShare>, PublicKeyShare)>,
     pub common_pk: PublicKey,
     pub pk_set: PublicKeySet,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TBLSKey {
+    pub secret_key: SerdeSecret<SecretKeyShare>,
+    pub public_key: PublicKeyShare,
+    pub common_public_key: PublicKey,
+    pub pk_set: PublicKeySet,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TBLSSignature {
+    pub number: u64, 
+    pub signature: SignatureShare,
+}
+
+impl TBLSKey {
+    pub fn sign(&self, data: &[u8]) -> SignatureShare {
+        self.secret_key.sign(data)
+    }
+
+    pub fn partial_verify(&self, sig: &SignatureShare, data: &[u8]) -> bool {
+        self.public_key.verify(sig, data)
+    }
+
+    pub fn threshold_verify(&self, sig: &Signature, data: &[u8]) -> bool {
+        self.common_public_key.verify(sig, data)
+    }
+
+    pub fn combine_partial_signatures(&self, sigs: &HashMap<u64, SignatureShare>) -> Signature {
+        self.pk_set.combine_signatures(sigs).expect("Combine partial signatures error!")
+    }
 }
 
 pub fn generate_keypair_set(t: usize, n: usize) -> ThresholdSigKeys {
@@ -19,20 +54,16 @@ pub fn generate_keypair_set(t: usize, n: usize) -> ThresholdSigKeys {
         .map(|i| {
             (
                 i as u64,
-                sk_set.secret_key_share(i),
+                SerdeSecret(sk_set.secret_key_share(i)),
                 pk_set.public_key_share(i),
             )
         })
         .collect();
 
-    // for (sks, pks) in &sk_and_pk_shares {
-    //     println!("【sk:{:?}, pk:{:?}】", &sks.reveal(), &pks);
-    // }
-
     let common_pk = pk_set.public_key();
 
     ThresholdSigKeys {
-        keypair_shares: Box::new(sk_and_pk_shares),
+        keypair_shares: sk_and_pk_shares,
         common_pk,
         pk_set,
     }
@@ -59,7 +90,7 @@ mod threshold_sig_tests {
     #[test]
     fn generate_works() {
         let t_sig_keys = generate_keypair_set(3, 9);
-        for (_, sks, pks) in *t_sig_keys.keypair_shares {
+        for (_, sks, pks) in t_sig_keys.keypair_shares {
             println!("【sk:{:?}, pk:{:?}】", &sks.reveal(), &pks);
         }
     }

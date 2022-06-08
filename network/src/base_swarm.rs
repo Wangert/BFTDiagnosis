@@ -5,14 +5,12 @@ use std::{
     time::Duration,
 };
 
-use futures::executor::block_on;
 use libp2p::{
     gossipsub::{
         Gossipsub, GossipsubConfigBuilder, GossipsubMessage, IdentTopic, MessageAuthenticity,
-        MessageId,
+        MessageId, ValidationMode,
     },
     identity::Keypair,
-    kad::record::Key,
     mdns::{Mdns, MdnsConfig},
     Multiaddr, PeerId, Swarm,
 };
@@ -62,25 +60,35 @@ impl BaseSwarm {
 
         let gossipsub_config = GossipsubConfigBuilder::default()
             .heartbeat_interval(Duration::from_secs(5))
+            .validation_mode(ValidationMode::Permissive)
             .message_id_fn(message_id_fn)
+            //.allow_self_origin(true)
             .build()
             .expect("Valid config");
 
+        // let mut gossipsub: Gossipsub = Gossipsub::new(
+        //     MessageAuthenticity::Signed(keypair.clone()),
+        //     gossipsub_config,
+        // )
+        // .expect("Gossipsub correct configuration");
+
         let mut gossipsub: Gossipsub = Gossipsub::new(
-            MessageAuthenticity::Signed(keypair.clone()),
+            MessageAuthenticity::Author(peer_id.clone()),
             gossipsub_config,
         )
         .expect("Gossipsub correct configuration");
 
         if is_consensus_node == true {
-            let topic = IdentTopic::new("consensus");
-            gossipsub.subscribe(&topic).unwrap();
+            let topic1 = IdentTopic::new("consensus");
+            gossipsub.subscribe(&topic1).unwrap();
+            let topic2 = IdentTopic::new("DistributePK");
+            gossipsub.subscribe(&topic2).unwrap();
         } else {
-            let topic = IdentTopic::new("client");
-            gossipsub.subscribe(&topic).unwrap();
+            let topic1 = IdentTopic::new("client");
+            gossipsub.subscribe(&topic1).unwrap();
+            let topic2 = IdentTopic::new("DistributePK");
+            gossipsub.subscribe(&topic2).unwrap();
         }
-        
-        
 
         // create mdns
         let mdns = Mdns::new(MdnsConfig::default()).await?;
@@ -99,10 +107,7 @@ impl BaseSwarm {
         Ok(())
     }
 
-    pub fn start(
-        &mut self,
-        multiaddr: Multiaddr,
-    ) -> Result<(), Box<dyn Error>> {
+    pub fn start(&mut self, multiaddr: Multiaddr) -> Result<(), Box<dyn Error>> {
         let swarm = if let Some(swarm) = &mut self.swarm {
             swarm
         } else {
