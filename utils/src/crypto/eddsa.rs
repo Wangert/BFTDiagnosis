@@ -78,7 +78,7 @@ mod eddsa_test {
     #[test]
     fn signature_verify_works() {
         let eddsa_keypair_1 = EdDSAKeyPair::new();
-        let eddsa_keypair_2 = EdDSAKeyPair::new();
+        let _eddsa_keypair_2 = EdDSAKeyPair::new();
 
         let eddsa_public_key_1 = eddsa_keypair_1.get_public_key();
         // let public_key_1: PublicKey = eddsa_keypair_1.0.public;

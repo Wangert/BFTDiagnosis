@@ -110,18 +110,19 @@ impl Unicast {
             sequence_number: rand::random::<[u8; 20]>().to_vec(),
         };
 
-        println!("Send_message ok");
+        // println!("Send_message ok");
 
-        println!(
-            "can_send_peers {}",
-            self.can_send_peers.contains(recv_peer_id)
-        );
-        println!(
-            "connected_peers {}",
-            self.connected_peers.contains(recv_peer_id)
-        );
-        if self.can_send_peers.contains(recv_peer_id) && self.connected_peers.contains(recv_peer_id) {
-            println!("Send_message ok");
+        // println!(
+        //     "can_send_peers {}",
+        //     self.can_send_peers.contains(recv_peer_id)
+        // );
+        // println!(
+        //     "connected_peers {}",
+        //     self.connected_peers.contains(recv_peer_id)
+        // );
+        if self.can_send_peers.contains(recv_peer_id) && self.connected_peers.contains(recv_peer_id)
+        {
+            //println!("Send_message ok");
             self.events
                 .push_back(NetworkBehaviourAction::NotifyHandler {
                     peer_id: *recv_peer_id,
