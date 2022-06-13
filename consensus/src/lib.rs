@@ -1,5 +1,6 @@
 pub mod pbft;
-pub mod hotstuff;
+pub mod basic_hotstuff;
+pub mod chain_hotstuff;
 
 #[cfg(test)]
 mod tests {
