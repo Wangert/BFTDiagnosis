@@ -11,7 +11,7 @@ use utils::{
     crypto::threshold_signature::TBLSKey,
 };
 
-use crate::hotstuff::consensus_node::{
+use crate::basic_hotstuff::consensus_node::{
     common::{get_message_hash, get_request_hash, PREPARE, PRE_COMMIT},
     message::Vote,
     state::Mode,

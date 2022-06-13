@@ -27,8 +27,8 @@ impl Log {
     }
 
     pub fn get_newviews_count_by_view(&self, view_num: u64) -> usize {
-        if let Some(signatures) = self.newviews.get(&view_num) {
-            signatures.len()
+        if let Some(newviews) = self.newviews.get(&view_num) {
+            newviews.len()
         } else {
             0
         }

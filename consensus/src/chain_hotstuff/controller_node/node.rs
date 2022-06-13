@@ -15,7 +15,7 @@ use network::{
 use tokio::io::{self, AsyncBufReadExt};
 use utils::coder::{self, serialize_into_bytes};
 
-use crate::hotstuff::controller_node::{
+use crate::chain_hotstuff::controller_node::{
     common::{create_requests, generate_bls_keys},
     message::{ConsensusNodePKInfo, Message, MessageType},
 };

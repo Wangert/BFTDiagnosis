@@ -14,7 +14,7 @@ use network::{
 
 use utils::coder::{self};
 
-use crate::hotstuff::consensus_node::{message::MessageType, state::Mode};
+use crate::basic_hotstuff::consensus_node::{message::MessageType, state::Mode};
 
 use super::{
     common::get_request_hash,
