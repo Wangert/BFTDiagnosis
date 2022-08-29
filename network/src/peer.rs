@@ -1,19 +1,18 @@
 use crate::{
     base_swarm::BaseSwarm,
-    p2p_protocols::{base_behaviour::OutEvent, unicast::behaviour::UnicastEvent},
+    p2p_protocols::{base_behaviour::{OutEvent, BaseBehaviour}, unicast::behaviour::UnicastEvent},
 };
 
 use futures::StreamExt;
 use libp2p::{
     gossipsub::{GossipsubEvent, IdentTopic},
     identity::Keypair,
+    mdns::MdnsEvent,
     swarm::SwarmEvent,
-    Multiaddr, PeerId, mdns::MdnsEvent,
+    Multiaddr, PeerId, Swarm,
 };
-use std::{error::Error};
-use tokio::{
-    io::{self, AsyncBufReadExt},
-};
+use std::error::Error;
+use tokio::io::{self, AsyncBufReadExt};
 
 pub struct Peer {
     // peer id
@@ -27,10 +26,18 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub fn new(swarm_addr: Multiaddr) -> Peer {
+    pub fn new(swarm_addr: Multiaddr, _peer_id: Option<PeerId>) -> Peer {
         // Create a random PeerID
         let keypair = Keypair::generate_ed25519();
-        let peer_id = PeerId::from(keypair.public());
+        
+        // match peer_id {
+        //     Some(peer_id) => {},
+        //     None => {
+            
+        //     },
+        // }
+        // let peer_id = PeerId::from(keypair.public());
+        let peer_id = PeerId::random();
 
         Peer {
             id: peer_id.clone(),
@@ -44,10 +51,18 @@ impl Peer {
         self.keypair.clone()
     }
 
+    pub fn network_mut(&mut self) -> &mut BaseSwarm {
+        &mut self.network
+    }
+
+    pub fn network_swarm_mut(&mut self) -> &mut Swarm<BaseBehaviour> {
+        self.network.swarm.as_mut().expect("Not build swarm!")
+    }
+
     pub async fn swarm_start(&mut self, is_consensus_node: bool) -> Result<(), Box<dyn Error>> {
         self.network
             .build(self.id.clone(), self.keypair.clone(), is_consensus_node)
-            .await?;
+            .await?;   
         self.network.start(self.swarm_addr.clone())?;
 
         Ok(())

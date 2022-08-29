@@ -3,9 +3,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use chrono::Local;
 use libp2p::PeerId;
 
-use utils::{
-    crypto::threshold_signature::{self, TBLSKey},
-};
+use utils::crypto::threshold_signature::{self, TBLSKey};
 
 use super::message::{DistributeTBLSKey, Message, MessageType, Request};
 

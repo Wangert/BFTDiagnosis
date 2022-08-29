@@ -34,6 +34,7 @@ impl Log {
         }
     }
 
+    // get high_qc by view number in local logs
     pub fn get_high_qc_by_view(&self, view_num: u64, generic_qc: Option<QC>) -> Option<QC> {
         let generic_vec = self.generics.get(&view_num).unwrap();
         let mut high_qc: Option<QC> = generic_qc;
@@ -56,6 +57,7 @@ impl Log {
         high_qc
     }
 
+    // record vote partial signature
     pub fn record_messgae_partial_signature(
         &mut self,
         msg_hash: &str,

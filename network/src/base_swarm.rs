@@ -20,9 +20,10 @@ use crate::{
     transport::create_base_transport,
 };
 
+
 // mdns + unicast + gossipsub swarm
 pub struct BaseSwarm {
-    pub swarm: Option<Box<Swarm<BaseBehaviour>>>,
+    pub swarm: Option<Swarm<BaseBehaviour>>,
 }
 
 impl BaseSwarm {
@@ -31,7 +32,7 @@ impl BaseSwarm {
     }
 
     // build swarm
-    pub async fn build(
+    pub async fn   build(
         &mut self,
         peer_id: PeerId,
         keypair: Keypair,
@@ -79,12 +80,12 @@ impl BaseSwarm {
         .expect("Gossipsub correct configuration");
 
         if is_consensus_node == true {
-            let topic1 = IdentTopic::new("consensus");
+            let topic1 = IdentTopic::new("Consensus");
             gossipsub.subscribe(&topic1).unwrap();
             let topic2 = IdentTopic::new("DistributePK");
             gossipsub.subscribe(&topic2).unwrap();
         } else {
-            let topic1 = IdentTopic::new("client");
+            let topic1 = IdentTopic::new("ControllerAndAnalyzer");
             gossipsub.subscribe(&topic1).unwrap();
             let topic2 = IdentTopic::new("DistributePK");
             gossipsub.subscribe(&topic2).unwrap();
@@ -102,7 +103,7 @@ impl BaseSwarm {
 
         // create base swarm
         let swarm = Swarm::new(transport, base_behaviour, peer_id);
-        self.swarm = Some(Box::new(swarm));
+        self.swarm = Some(swarm);
 
         Ok(())
     }

@@ -10,12 +10,10 @@ use utils::{
     crypto::eddsa::{EdDSAKeyPair, EdDSAPublicKey},
 };
 
-use super::{log::Log, message::Message, state::State};
 
 // Controller node executor
 pub struct Executor {
-    pub state: State,
-    pub log: Box<Log>,
+    // pub state: State,
     pub db: Box<LevelDB>,
     pub keypair: Box<EdDSAKeyPair>,
     pub msg_tx: Sender<Vec<u8>>,
@@ -28,8 +26,8 @@ impl Executor {
         let (msg_tx, msg_rx) = mpsc::channel::<Vec<u8>>(10);
 
         Self {
-            state: State::new(),
-            log: Box::new(Log::new()),
+            // state: State::new(),
+            // log: Box::new(Log::new()),
             db: Box::new(LevelDB::new(db_path)),
             keypair: Box::new(EdDSAKeyPair::new()),
             msg_tx,
@@ -39,7 +37,7 @@ impl Executor {
     }
 
     pub async fn message_handler(&mut self, _current_peer_id: &[u8], msg: &Vec<u8>) {
-        let _message: Message = coder::deserialize_for_bytes(msg);
+        // let _message: Message = coder::deserialize_for_bytes(msg);
         // match message.msg_type {
 
         // }
