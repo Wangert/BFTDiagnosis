@@ -62,7 +62,7 @@ impl Executor {
     }
 
     //
-    pub async fn message_handler(&mut self, current_peer_id: &[u8], msg: &Vec<u8>) {
+    pub async fn message_handler(&mut self, current_peer_id: &[u8], msg: &[u8]) {
         let message: Message = coder::deserialize_for_bytes(msg);
         match message.msg_type {
             MessageType::Request(msg) => {

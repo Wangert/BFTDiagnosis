@@ -1,8 +1,8 @@
-use bigint::{U512};
+use bigint::U512;
 use leveldb::database::Database;
 use std::{env, fs};
 // use leveldb::iterator::Iterable;
-use crate::common::{DBKey};
+use crate::common::DBKey;
 use leveldb::kv::KV;
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 pub struct LevelDB(Database<DBKey>);
@@ -58,7 +58,6 @@ impl LevelDB {
         };
     }
 }
-
 
 #[cfg(test)]
 mod database_test {

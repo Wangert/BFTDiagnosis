@@ -1,5 +1,3 @@
-
-
 use utils::coder;
 
 use super::message::{Block, Request};
