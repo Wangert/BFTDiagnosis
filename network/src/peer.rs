@@ -26,18 +26,11 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub fn new(swarm_addr: Multiaddr, _peer_id: Option<PeerId>) -> Peer {
+    pub fn new(swarm_addr: Multiaddr) -> Peer {
         // Create a random PeerID
         let keypair = Keypair::generate_ed25519();
         
-        // match peer_id {
-        //     Some(peer_id) => {},
-        //     None => {
-            
-        //     },
-        // }
-        // let peer_id = PeerId::from(keypair.public());
-        let peer_id = PeerId::random();
+        let peer_id = PeerId::from(keypair.public());
 
         Peer {
             id: peer_id.clone(),
@@ -86,7 +79,7 @@ impl Peer {
                     if line.contains("send") {
                         swarm.behaviour_mut().unicast.rand_send_message(line);
                     } else if line.contains("publish") {
-                        let topic = IdentTopic::new("consensus");
+                        let topic = IdentTopic::new("Consensus");
                         if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic, line) {
                             eprintln!("Publish message error:{:?}", e);
                         };

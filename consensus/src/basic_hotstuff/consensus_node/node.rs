@@ -117,7 +117,7 @@ impl Node {
                             // println!("Current request buffer map: {:?}", self.request_buffer_map);
                         }
                         _ => {
-                            let topic = IdentTopic::new("consensus");
+                            let topic = IdentTopic::new("Consensus");
                             if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), msg) {
                                 eprintln!("Publish message error:{:?}", e);
                             }

@@ -93,7 +93,7 @@ impl Node {
 
                             let msg = Message { msg_type: MessageType::ConsensusNodePKsInfo(consensus_node_pks) };
                             let serialized_msg = coder::serialize_into_bytes(&msg);
-                            let topic = IdentTopic::new("consensus");
+                            let topic = IdentTopic::new("Consensus");
                             if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), serialized_msg) {
                                 eprintln!("Publish message error:{:?}", e);
                             }
@@ -105,7 +105,7 @@ impl Node {
                             for msg in msg_vec {
                                 println!("Request: {:?}", msg);
                                 let serialized_msg = serialize_into_bytes(&msg);
-                                let topic = IdentTopic::new("consensus");
+                                let topic = IdentTopic::new("Consensus");
                                 if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), serialized_msg) {
                                     eprintln!("Publish message error:{:?}", e);
                                 }
