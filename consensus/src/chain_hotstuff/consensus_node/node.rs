@@ -91,7 +91,7 @@ impl Node {
                                 let leader_id = PeerId::from_bytes(&self.executor.state.current_leader).expect("Leader peer id error.");
                                 swarm.behaviour_mut().unicast.send_message(&leader_id, msg);
                             } else {
-                                let topic = IdentTopic::new("consensus");
+                                let topic = IdentTopic::new("Consensus");
                                 if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), msg) {
                                 eprintln!("Publish message error:{:?}", e);
                                 }
@@ -121,7 +121,7 @@ impl Node {
                             println!("Current request buffer map: {:?}", self.request_buffer_map);
                         }
                         _ => {
-                            let topic = IdentTopic::new("consensus");
+                            let topic = IdentTopic::new("Consensus");
                             if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), msg) {
                                 eprintln!("Publish message error:{:?}", e);
                             }

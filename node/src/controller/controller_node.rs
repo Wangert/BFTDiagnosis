@@ -20,13 +20,13 @@ use utils::coder::{self, serialize_into_bytes};
 
 use crate::{
     common::{generate_bls_keys, generate_consensus_requests_command},
-    message::{Command, ConsensusNodePKInfo, CommandMessage},
+    message::{Command, ConsensusNodePKInfo, CommandMessage, Component, InteractiveMessage, Message},
 };
 
 use super::executor::Executor;
 
 pub struct ControllerNode {
-    pub id: PeerId,
+    id: PeerId,
     pub peer: Peer,
     pub executor: Executor,
     pub connected_nodes: HashMap<String, PeerId>,
@@ -53,6 +53,14 @@ impl ControllerNode {
         self.message_handler_start().await;
 
         Ok(())
+    }
+
+    pub fn id(&self) -> PeerId {
+        self.id.clone()
+    }
+
+    pub fn id_bytes(&self) -> Vec<u8> {
+        self.id.to_bytes()
     }
 
     pub fn peer_mut(&mut self) -> &mut Peer {
@@ -103,7 +111,7 @@ impl ControllerNode {
             command: Command::DistributeConsensusNodePKsInfo(consensus_node_pks),
         };
         let serialized_msg = coder::serialize_into_bytes(&msg);
-        let topic = IdentTopic::new("consensus");
+        let topic = IdentTopic::new("Consensus");
         if let Err(e) = self
             .peer_mut()
             .network_swarm_mut()
@@ -120,13 +128,34 @@ impl ControllerNode {
         let msg = generate_consensus_requests_command(count);
         println!("Request: {:#?}", msg);
         let serialized_msg = serialize_into_bytes(&msg);
-        let topic = IdentTopic::new("consensus");
+        let topic = IdentTopic::new("Consensus");
         if let Err(e) = self
             .peer_mut()
             .network_swarm_mut()
             .behaviour_mut()
             .gossipsub
             .publish(topic.clone(), serialized_msg)
+        {
+            eprintln!("Publish message error:{:?}", e);
+        }
+    }
+
+    pub fn init(&mut self) {
+        let id_bytes = self.id_bytes();
+        let component = Component::Controller(id_bytes);
+        let interactive_message = InteractiveMessage::ComponentInfo(component);
+        let message = Message {
+            message: interactive_message,
+        };
+
+        let serialized_message = coder::serialize_into_bytes(&message);
+        let topic = IdentTopic::new("Initialization");
+        if let Err(e) = self
+            .peer_mut()
+            .network_swarm_mut()
+            .behaviour_mut()
+            .gossipsub
+            .publish(topic.clone(), serialized_message)
         {
             eprintln!("Publish message error:{:?}", e);
         }
@@ -143,6 +172,9 @@ impl ControllerNode {
                         let count = command.parse::<usize>().ok();
                         match count {
                             None => match &command as &str {
+                                "Init" => {
+                                    self.init();
+                                }
                                 "AssignKey" => {
                                     self.assign_key_to_consensus_node();
                                 }

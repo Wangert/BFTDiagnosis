@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let is_consensus_node = args.is_consensus_node;
     let swarm_addr = into_ip4_tcp_multiaddr(args.swarm_addr.as_str(), args.swarm_port);
-    let local_peer = Peer::new(swarm_addr, None);
+    let local_peer = Peer::new(swarm_addr);
 
     // let mut node = Node::new(Box::new(local_peer), &args.swarm_port.to_string());
 

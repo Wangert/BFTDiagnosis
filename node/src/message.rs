@@ -18,25 +18,35 @@ pub enum Command {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum ConsensusData {
-    ConsensusStartData(ConsensusStartData),
-    ConsensusEndData(ConsensusEndData),
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CommandMessage {
     pub command: Command,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConsensusDataMessage {
-    pub data: ConsensusData
+pub enum Component {
+    // controller component peer id(vec<u8 type>)
+    Controller(Vec<u8>),
+    // analyzer component peer id(vec<u8> type)
+    Analyzer(Vec<u8>),
+    // consensus node peer id(vec<u8> type)
+    ConsensusNode(Vec<u8>),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum InteractiveMessage {
+    ComponentInfo(Component),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Message {
+    pub message: InteractiveMessage,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum TestItem {
-    Throughout,
+    Throughput,
     Latency,
+    ThroughputAndLatency,
     Scalability,
     Crash,
     Malicious(MaliciousAction),
@@ -67,6 +77,12 @@ pub struct DistributeTBLSKey {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum ConsensusData {
+    ConsensusStartData(ConsensusStartData),
+    ConsensusEndData(ConsensusEndData),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConsensusStartData {
     pub request: Request,
     pub start_time: u64,
@@ -76,4 +92,9 @@ pub struct ConsensusStartData {
 pub struct ConsensusEndData {
     pub request: Request,
     pub completed_time: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConsensusDataMessage {
+    pub data: ConsensusData
 }
