@@ -35,14 +35,15 @@ pub enum Component {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum InteractiveMessage {
     ComponentInfo(Component),
+    TestItem(TestItem),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Message {
-    pub message: InteractiveMessage,
+    pub interactive_message: InteractiveMessage,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum TestItem {
     Throughput,
     Latency,
@@ -52,7 +53,7 @@ pub enum TestItem {
     Malicious(MaliciousAction),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum MaliciousAction {
     Action1,
     Action2,

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error};
+use std::{collections::{HashMap, HashSet}, error::Error};
 
 use libp2p::{
     futures::StreamExt,
@@ -20,7 +20,7 @@ use utils::coder::{self, serialize_into_bytes};
 
 use crate::{
     common::{generate_bls_keys, generate_consensus_requests_command},
-    message::{Command, ConsensusNodePKInfo, CommandMessage, Component, InteractiveMessage, Message},
+    message::{Command, ConsensusNodePKInfo, CommandMessage, Component, InteractiveMessage, Message, TestItem, MaliciousAction},
 };
 
 use super::executor::Executor;
@@ -31,11 +31,12 @@ pub struct ControllerNode {
     pub executor: Executor,
     pub connected_nodes: HashMap<String, PeerId>,
 
-    analysis_node_id: PeerId,
+    analyzer_id: PeerId,
+    test_items: Vec<TestItem>,
 }
 
 impl ControllerNode {
-    pub fn new(peer: Peer, analysis_node_id: PeerId, port: &str) -> Self {
+    pub fn new(peer: Peer, analyzer_id: PeerId, port: &str) -> Self {
         let db_path = format!("./storage/data/{}_public_keys", port);
         let executor = Executor::new(&db_path);
         Self {
@@ -44,7 +45,8 @@ impl ControllerNode {
             executor,
             connected_nodes: HashMap::new(),
 
-            analysis_node_id,
+            analyzer_id,
+            test_items: Vec::new(),
         }
     }
 
@@ -69,6 +71,23 @@ impl ControllerNode {
 
     pub fn executor_mut(&mut self) -> &mut Executor {
         &mut self.executor
+    }
+
+    pub fn analyzer_id(&self) -> PeerId {
+        self.analyzer_id.clone()
+    }
+
+    pub fn add_analyzer(&mut self, analyzer_id: PeerId) {
+        self.analyzer_id = analyzer_id;
+    }
+
+    pub fn add_test_item(&mut self, test_item: TestItem) -> usize {
+        self.test_items.push(test_item);
+        self.test_items.len()
+    }
+
+    pub fn next_test_item(&mut self) -> Option<TestItem> {
+        self.test_items.pop()
     }
 
     // Assign keys to consensus nodes and send all consensus node public keys to each consensus node
@@ -145,7 +164,7 @@ impl ControllerNode {
         let component = Component::Controller(id_bytes);
         let interactive_message = InteractiveMessage::ComponentInfo(component);
         let message = Message {
-            message: interactive_message,
+            interactive_message,
         };
 
         let serialized_message = coder::serialize_into_bytes(&message);
@@ -158,6 +177,43 @@ impl ControllerNode {
             .publish(topic.clone(), serialized_message)
         {
             eprintln!("Publish message error:{:?}", e);
+        }
+    }
+
+    pub fn configure_analyzer(&mut self) {
+        let test_item = self.next_test_item();
+        if let Some(item) = test_item {
+            let message = Message {
+                interactive_message: InteractiveMessage::TestItem(item),
+            };
+            let serialized_message = coder::serialize_into_bytes(&message);
+
+            let analyzer_id = self.analyzer_id();
+            self.peer_mut().network_swarm_mut().behaviour_mut().unicast.send_message(&analyzer_id, serialized_message);
+
+            // match item {
+            //     TestItem::Throughput => {
+
+            //     },
+            //     TestItem::Latency => {
+
+            //     },
+            //     TestItem::ThroughputAndLatency => {
+
+            //     },
+            //     TestItem::Scalability => {
+
+            //     },
+            //     TestItem::Crash => {
+
+            //     },
+            //     TestItem::Malicious(MaliciousAction::Action1) => {
+
+            //     },
+            //     TestItem::Malicious(MaliciousAction::Action2) => {
+                    
+            //     }
+            // }
         }
     }
 
@@ -204,7 +260,15 @@ impl ControllerNode {
                         message_id: _id,
                         message,
                     })) => {
-                        self.executor.message_handler(&self.id.to_bytes(), &message.data).await;
+                        let message: Message = coder::deserialize_for_bytes(&message.data);
+                        match message.interactive_message {
+                            InteractiveMessage::ComponentInfo(Component::Analyzer(id_bytes)) => {
+                                let analyzer_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
+                                self.add_analyzer(analyzer_id);
+                            },
+                            _ => {}
+                        };
+                        //self.executor.message_handler(&self.id.to_bytes(), &message.data).await;
                     }
                     SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
                         let swarm = self.peer.network_swarm_mut();

@@ -9,7 +9,7 @@ use crate::{
     config::ExtraInfo,
     message::{
         Command, CommandMessage, ConsensusData, ConsensusDataMessage, ConsensusEndData,
-        ConsensusStartData, Request,
+        ConsensusStartData, Request, MaliciousAction,
     },
 };
 
@@ -242,9 +242,4 @@ enum ConsensusNodeMode {
     Honest,
     Dishonest(MaliciousAction),
     Outage(usize),
-}
-
-enum MaliciousAction {
-    Action1,
-    Action2,
 }
