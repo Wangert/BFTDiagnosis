@@ -86,13 +86,13 @@ pub enum ConsensusData {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConsensusStartData {
     pub request: Request,
-    pub start_time: u64,
+    pub start_time: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConsensusEndData {
     pub request: Request,
-    pub completed_time: u64,
+    pub completed_time: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

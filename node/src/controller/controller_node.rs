@@ -234,6 +234,9 @@ impl ControllerNode {
                                 "AssignKey" => {
                                     self.assign_key_to_consensus_node();
                                 }
+                                "NextTestItem" => {
+                                    self.configure_analyzer();
+                                }
                                 "ProtocolStart" => {}
                                 _ => {
                                     println!("Command is not found!");

@@ -117,11 +117,12 @@ impl AnalysisNode {
     pub fn consensus_node_message_handler(&mut self, origin_peer_id: &PeerId, message: ConsensusDataMessage) {
         match message.data {
             ConsensusData::ConsensusStartData(data) => {
-                self.data_warehouse.store_consensus_start_data(*origin_peer_id, data.clone());
                 println!("【ConsensusStartData(from {:?})】: {:?}", origin_peer_id.to_string(), &data);
+                self.data_warehouse.store_consensus_start_data(*origin_peer_id, data);
             }
             ConsensusData::ConsensusEndData(data) => {
                 println!("【ConsensusEndData(from {:?})】: {:?}", origin_peer_id.to_string(), &data);
+                self.data_warehouse.store_consensus_end_data(*origin_peer_id, data);
             }
         };
     }

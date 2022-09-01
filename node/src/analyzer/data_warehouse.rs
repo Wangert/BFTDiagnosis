@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::Hash};
 
+use chrono::Local;
 use libp2p::PeerId;
+use network::peer::Peer;
 
 use crate::{
     common::get_request_hash,
@@ -9,17 +11,21 @@ use crate::{
 
 // Store process data for consensus protocol
 pub struct DataWarehouse {
-    t_start_data: HashMap<PeerId, Vec<ConsensusStartData>>,
-    t_end_data: HashMap<PeerId, Vec<ConsensusEndData>>,
+    test_start_time: i64,
+
+    t_start_data: HashMap<(PeerId, String), ConsensusStartData>,
+    t_end_data: HashMap<(PeerId, String), ConsensusEndData>,
+    t_start_data_computing: HashMap<(PeerId, String), ConsensusStartData>,
+    t_end_data_computing: HashMap<(PeerId, String), ConsensusEndData>,
 
     l_start_data: HashMap<(PeerId, String), ConsensusStartData>,
     l_end_data: HashMap<(PeerId, String), ConsensusEndData>,
     l_start_data_computing: HashMap<(PeerId, String), ConsensusStartData>,
     l_end_data_computing: HashMap<(PeerId, String), ConsensusEndData>,
 
+    throughput_mid_results: HashMap<PeerId, u64>,
     throughput_results: HashMap<PeerId, u64>,
     latency_results: HashMap<PeerId, Vec<LatencyResult>>,
-
     scalability_results: HashMap<(PeerId, u16), ScalabilityResult>,
 }
 
@@ -37,42 +43,47 @@ pub struct ScalabilityResult {
 impl DataWarehouse {
     pub fn new() -> Self {
         Self {
+            test_start_time: 0,
             t_start_data: HashMap::new(),
             t_end_data: HashMap::new(),
+            t_start_data_computing: HashMap::new(),
+            t_end_data_computing: HashMap::new(),
             l_start_data: HashMap::new(),
             l_end_data: HashMap::new(),
             l_start_data_computing: HashMap::new(),
             l_end_data_computing: HashMap::new(),
+            throughput_mid_results: HashMap::new(),
             throughput_results: HashMap::new(),
             latency_results: HashMap::new(),
             scalability_results: HashMap::new(),
         }
     }
 
-    pub fn store_consensus_start_data(&mut self, origin_peer_id: PeerId, data: ConsensusStartData) {
-        if let Some(start_data_vec) = self.t_start_data.get_mut(&origin_peer_id) {
-            start_data_vec.push(data.clone());
-        } else {
-            let new_vec = vec![data.clone()];
-            self.t_start_data.insert(origin_peer_id, new_vec);
-        }
+    pub fn set_test_start_time(&mut self, start_time: i64) {
+        self.test_start_time = start_time;
+    }
 
+    pub fn store_consensus_start_data(&mut self, origin_peer_id: PeerId, data: ConsensusStartData) {
         let request_hash = get_request_hash(&data.request);
+        self.t_start_data
+            .insert((origin_peer_id, request_hash.clone()), data.clone());
         self.l_start_data
             .insert((origin_peer_id, request_hash), data);
     }
 
     pub fn store_consensus_end_data(&mut self, origin_peer_id: PeerId, data: ConsensusEndData) {
-        if let Some(end_data_vec) = self.t_end_data.get_mut(&origin_peer_id) {
-            end_data_vec.push(data.clone());
-        } else {
-            let new_vec = vec![data.clone()];
-            self.t_end_data.insert(origin_peer_id, new_vec);
-        }
-
         let request_hash = get_request_hash(&data.request);
-
+        self.t_end_data
+            .insert((origin_peer_id, request_hash.clone()), data.clone());
         self.l_end_data.insert((origin_peer_id, request_hash), data);
+    }
+
+    pub fn prepare_compute_throughput(&mut self) {
+        self.t_start_data_computing = self.t_start_data.clone();
+        self.t_start_data.clear();
+
+        self.t_end_data_computing = self.t_end_data.clone();
+        self.t_end_data.clear();
     }
 
     pub fn prepare_compute_latency(&mut self) {
@@ -83,7 +94,43 @@ impl DataWarehouse {
         self.l_end_data.clear();
     }
 
-    pub fn compute_throughput(&mut self) {}
+    pub fn compute_throughput(&mut self) {
+        self.prepare_compute_throughput();
+        let current_time = Local::now().timestamp_millis();
+
+        
+        // let current_time = 30;
+
+        let data_computing = self.t_start_data_computing.clone();
+        data_computing.iter().for_each(|(k, _)| {
+            if let Some(_) = self.t_end_data_computing.get(k) {
+                self.update_request_count_with_peer(k.0);
+
+                self.t_start_data_computing.remove(k);
+                self.t_end_data_computing.remove(k);
+            }
+        });
+
+        self.throughput_results = self
+            .throughput_mid_results
+            .iter()
+            .map(|(&peer_id, &count)| {
+                let throughput = (count as f64 / 0.001 * (current_time - self.test_start_time) as f64) as u64;
+                (peer_id, throughput)
+            })
+            .collect();
+
+        // The remaining data is rewritten to t_start_data and t_end_data
+        self.t_start_data_computing.iter().for_each(|(k, v)| {
+            self.t_start_data.insert(k.clone(), v.clone());
+        });
+        self.t_end_data_computing.iter().for_each(|(k, v)| {
+            self.t_end_data.insert(k.clone(), v.clone());
+        });
+
+        self.t_start_data_computing.clear();
+        self.t_end_data_computing.clear();
+    }
 
     pub fn compute_latency(&mut self) {
         self.prepare_compute_latency();
@@ -91,12 +138,14 @@ impl DataWarehouse {
         let data_computing = self.l_start_data_computing.clone();
         data_computing.iter().for_each(|(k, start_data)| {
             if let Some(end_data) = self.l_end_data_computing.get(k) {
-                let latency = end_data.completed_time - start_data.start_time;
+                let latency = (end_data.completed_time - start_data.start_time) as u64;
                 let latency_result = LatencyResult {
                     request: start_data.request.clone(),
                     latency,
                 };
                 self.store_latency_result(k.0, latency_result);
+                self.l_start_data_computing.remove(k);
+                self.l_end_data_computing.remove(k);
             } else {
                 let latency_result = LatencyResult {
                     request: start_data.request.clone(),
@@ -105,9 +154,26 @@ impl DataWarehouse {
                 self.store_latency_result(k.0, latency_result);
             };
         });
+
+        // The remaining data is rewritten to l_start_data and l_end_data
+        self.l_start_data_computing.iter().for_each(|(k, v)| {
+            self.l_start_data.insert(k.clone(), v.clone());
+        });
+        self.l_end_data_computing.iter().for_each(|(k, v)| {
+            self.l_end_data.insert(k.clone(), v.clone());
+        });
+
+        self.l_start_data_computing.clear();
+        self.l_end_data_computing.clear();
     }
 
-    pub fn store_throughput_result(&mut self, peer_id: PeerId, throughput: u64) {}
+    pub fn update_request_count_with_peer(&mut self, peer_id: PeerId) {
+        if let Some(&count) = self.throughput_mid_results.get(&peer_id) {
+            self.throughput_mid_results.insert(peer_id, count + 1);
+        } else {
+            self.throughput_mid_results.insert(peer_id, 1);
+        }
+    }
 
     pub fn store_latency_result(&mut self, peer_id: PeerId, latency_result: LatencyResult) {
         if let Some(latency_result_vec) = self.latency_results.get_mut(&peer_id) {
@@ -121,6 +187,9 @@ impl DataWarehouse {
 
 #[cfg(test)]
 pub mod data_warehouse_test {
+    use core::time;
+
+    use chrono::{Local, DateTime};
     use libp2p::PeerId;
 
     use crate::message::{ConsensusEndData, ConsensusStartData, Request};
@@ -211,8 +280,31 @@ pub mod data_warehouse_test {
 
         println!("Before Compute Latency:");
         println!("{:#?}", data_warehouse.latency_results);
+        println!("Before Compute Throughput:");
+        println!("{:#?}", data_warehouse.throughput_mid_results);
+        println!("{:#?}", data_warehouse.throughput_results);
         data_warehouse.compute_latency();
+        data_warehouse.compute_throughput();
         println!("After Compute Latency:");
         println!("{:#?}", data_warehouse.latency_results);
+        println!("After Compute Throughput:");
+        println!("{:#?}", data_warehouse.throughput_mid_results);
+        println!("{:#?}", data_warehouse.throughput_results);
+
+        println!("{:#?}", data_warehouse.l_start_data_computing);
+        
+    }
+
+    #[test]
+    pub fn timestamp_works() {
+        let current_time_millis = Local::now().timestamp_millis();
+        let current_time_sec = Local::now().timestamp();
+
+        std::thread::sleep(time::Duration::from_secs(3));
+
+        let end_time_millis = Local::now().timestamp_millis();
+        let end_time_sec = Local::now().timestamp();
+
+        println!("{}, {}", end_time_millis - current_time_millis, end_time_sec - current_time_sec);
     }
 }
