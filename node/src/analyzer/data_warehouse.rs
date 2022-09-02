@@ -9,6 +9,7 @@ use crate::{
     message::{ConsensusEndData, ConsensusStartData, Request},
 };
 
+#[derive(Debug, Clone)]
 // Store process data for consensus protocol
 pub struct DataWarehouse {
     test_start_time: i64,
@@ -29,12 +30,13 @@ pub struct DataWarehouse {
     scalability_results: HashMap<(PeerId, u16), ScalabilityResult>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LatencyResult {
     pub request: Request,
     pub latency: u64,
 }
 
+#[derive(Debug, Clone)]
 pub struct ScalabilityResult {
     pub throughput: u64,
     pub latency_results: Vec<LatencyResult>,
@@ -98,7 +100,6 @@ impl DataWarehouse {
         self.prepare_compute_throughput();
         let current_time = Local::now().timestamp_millis();
 
-        
         // let current_time = 30;
 
         let data_computing = self.t_start_data_computing.clone();
@@ -115,7 +116,8 @@ impl DataWarehouse {
             .throughput_mid_results
             .iter()
             .map(|(&peer_id, &count)| {
-                let throughput = (count as f64 / 0.001 * (current_time - self.test_start_time) as f64) as u64;
+                let throughput =
+                    (count as f64 / 0.001 * (current_time - self.test_start_time) as f64) as u64;
                 (peer_id, throughput)
             })
             .collect();
@@ -189,7 +191,7 @@ impl DataWarehouse {
 pub mod data_warehouse_test {
     use core::time;
 
-    use chrono::{Local, DateTime};
+    use chrono::{DateTime, Local};
     use libp2p::PeerId;
 
     use crate::message::{ConsensusEndData, ConsensusStartData, Request};
@@ -292,7 +294,6 @@ pub mod data_warehouse_test {
         println!("{:#?}", data_warehouse.throughput_results);
 
         println!("{:#?}", data_warehouse.l_start_data_computing);
-        
     }
 
     #[test]
@@ -305,6 +306,33 @@ pub mod data_warehouse_test {
         let end_time_millis = Local::now().timestamp_millis();
         let end_time_sec = Local::now().timestamp();
 
-        println!("{}, {}", end_time_millis - current_time_millis, end_time_sec - current_time_sec);
+        println!(
+            "{}, {}",
+            end_time_millis - current_time_millis,
+            end_time_sec - current_time_sec
+        );
+
+
+            println!("===================================================================");
+            println!("                                                                   ");
+            println!("
+            
+            __        __   _                            _                         
+            \\ \\      / /__| | ___ ___  _ __ ___   ___  | |_ ___    _   _ ___  ___ 
+             \\ \\ /\\ / / _ \\ |/ __/ _ \\| '_ ` _ \\ / _ \\ | __/ _ \\  | | | / __|/ _ \\
+              \\ V  V /  __/ | (_| (_) | | | | | |  __/ | || (_) | | |_| \\__ \\  __/
+               \\_/\\_/ \\___|_|\\___\\___/|_| |_| |_|\\___|  \\__\\___/   \\__,_|___/\\___|
+                                                                                  
+             ____  _____ _____ ____  _                             _              
+            | __ )|  ___|_   _|  _ \\(_) __ _  __ _ _ __   ___  ___(_)___          
+            |  _ \\| |_    | | | | | | |/ _` |/ _` | '_ \\ / _ \\/ __| / __|         
+            | |_) |  _|   | | | |_| | | (_| | (_| | | | | (_) \\__ \\ \\__ \\         
+            |____/|_|     |_| |____/|_|\\__,_|\\__, |_| |_|\\___/|___/_|___/         
+                                             |___/                               
+            
+            ");
+            println!("Welcome to use BFTDiagnosis！");
+            println!("                                                                   ");
+            println!("===================================================================");
     }
 }

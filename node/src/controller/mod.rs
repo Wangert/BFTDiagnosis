@@ -1,2 +1,2 @@
-pub mod controller_node;
+pub mod controller;
 pub mod executor;

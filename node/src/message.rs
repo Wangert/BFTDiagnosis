@@ -22,6 +22,7 @@ pub struct CommandMessage {
     pub command: Command,
 }
 
+// An enumeration of component types that contains the ID information for component nodes
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Component {
     // controller component peer id(vec<u8 type>)
@@ -32,10 +33,17 @@ pub enum Component {
     ConsensusNode(Vec<u8>),
 }
 
+// The component interaction information type of the BFTDiagnosis framework
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum InteractiveMessage {
+    // component information, including the component type
     ComponentInfo(Component),
+    // protocol test items, including test content
     TestItem(TestItem),
+    // interactive information to start the test
+    StartTest,
+    // test item has completed the interaction of the test
+    CompletedTest(TestItem),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -43,13 +51,21 @@ pub struct Message {
     pub interactive_message: InteractiveMessage,
 }
 
+// Protocol test item type
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum TestItem {
+    // testing the throughput of the protocol
     Throughput,
+    // testing the latency of the protocol
     Latency,
+    // testing the throughput and latency of the protocol
     ThroughputAndLatency,
-    Scalability,
-    Crash,
+    // testing the scalability of the protocol 
+    // (number of current nodes, maximum number of nodes)
+    Scalability(u16, u16),
+    // testing protocol security in the case of node crash, including the number of crash nodes
+    Crash(u16),
+    // testing protocol security in the case of malicious nodes
     Malicious(MaliciousAction),
 }
 

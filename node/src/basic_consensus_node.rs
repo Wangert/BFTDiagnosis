@@ -9,7 +9,7 @@ use crate::{
     config::ExtraInfo,
     message::{
         Command, CommandMessage, ConsensusData, ConsensusDataMessage, ConsensusEndData,
-        ConsensusStartData, Request, MaliciousAction,
+        ConsensusStartData, MaliciousAction, Request,
     },
 };
 

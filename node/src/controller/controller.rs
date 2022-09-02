@@ -1,5 +1,9 @@
-use std::{collections::{HashMap, HashSet}, error::Error};
+use std::{
+    collections::{HashMap, HashSet},
+    error::Error,
+};
 
+use cli::{client::Client, cmd::rootcmd::CONTROLLER_CMD};
 use libp2p::{
     futures::StreamExt,
     gossipsub::{GossipsubEvent, IdentTopic},
@@ -15,30 +19,42 @@ use network::{
     peer::Peer,
 };
 
-use tokio::io::{self, AsyncBufReadExt};
+use tokio::{io::{self, AsyncBufReadExt}, sync::mpsc::{Sender, Receiver, self}};
 use utils::coder::{self, serialize_into_bytes};
 
 use crate::{
     common::{generate_bls_keys, generate_consensus_requests_command},
-    message::{Command, ConsensusNodePKInfo, CommandMessage, Component, InteractiveMessage, Message, TestItem, MaliciousAction},
+    message::{
+        Command, CommandMessage, Component, ConsensusNodePKInfo, InteractiveMessage,
+        MaliciousAction, Message, TestItem,
+    },
 };
+
+use clap::{Command as clap_Command, ArgMatches};
 
 use super::executor::Executor;
 
-pub struct ControllerNode {
+pub struct Controller {
     id: PeerId,
-    pub peer: Peer,
-    pub executor: Executor,
-    pub connected_nodes: HashMap<String, PeerId>,
+    peer: Peer,
+    executor: Executor,
+    connected_nodes: HashMap<String, PeerId>,
 
     analyzer_id: PeerId,
     test_items: Vec<TestItem>,
+
+    client: Client,
+    args_sender: Sender<Vec<String>>,
+    args_recevier: Receiver<Vec<String>>,
 }
 
-impl ControllerNode {
+impl Controller {
     pub fn new(peer: Peer, analyzer_id: PeerId, port: &str) -> Self {
         let db_path = format!("./storage/data/{}_public_keys", port);
         let executor = Executor::new(&db_path);
+        let (args_sender, args_recevier) = mpsc::channel::<Vec<String>>(10);
+
+        let matches = CONTROLLER_CMD.clone().get_matches();
         Self {
             id: peer.id,
             peer,
@@ -47,20 +63,30 @@ impl ControllerNode {
 
             analyzer_id,
             test_items: Vec::new(),
+
+            client: Client::new(matches),
+            args_sender,
+            args_recevier,
         }
     }
 
     pub async fn peer_start(&mut self) -> Result<(), Box<dyn Error>> {
         self.peer_mut().swarm_start(false).await?;
+
+        let arg_sender = self.args_sender.clone();
+        // self.client().run(arg_sender, 1);
+
         self.message_handler_start().await;
 
         Ok(())
     }
 
+    // Controller's id
     pub fn id(&self) -> PeerId {
         self.id.clone()
     }
 
+    // Controller's id bytes
     pub fn id_bytes(&self) -> Vec<u8> {
         self.id.to_bytes()
     }
@@ -73,19 +99,30 @@ impl ControllerNode {
         &mut self.executor
     }
 
+    pub fn client(&self) -> Client {
+        self.client.clone()
+    }
+
+    // Analyzer's id
     pub fn analyzer_id(&self) -> PeerId {
         self.analyzer_id.clone()
+    }
+
+    pub fn args_sender(&self) -> Sender<Vec<String>> {
+        self.args_sender.clone()
     }
 
     pub fn add_analyzer(&mut self, analyzer_id: PeerId) {
         self.analyzer_id = analyzer_id;
     }
 
+    // add test item
     pub fn add_test_item(&mut self, test_item: TestItem) -> usize {
         self.test_items.push(test_item);
         self.test_items.len()
     }
 
+    // get next test item
     pub fn next_test_item(&mut self) -> Option<TestItem> {
         self.test_items.pop()
     }
@@ -159,6 +196,7 @@ impl ControllerNode {
         }
     }
 
+    // Controller Initialization
     pub fn init(&mut self) {
         let id_bytes = self.id_bytes();
         let component = Component::Controller(id_bytes);
@@ -180,6 +218,7 @@ impl ControllerNode {
         }
     }
 
+    // The controller configures the analyzer parameters
     pub fn configure_analyzer(&mut self) {
         let test_item = self.next_test_item();
         if let Some(item) = test_item {
@@ -189,74 +228,149 @@ impl ControllerNode {
             let serialized_message = coder::serialize_into_bytes(&message);
 
             let analyzer_id = self.analyzer_id();
-            self.peer_mut().network_swarm_mut().behaviour_mut().unicast.send_message(&analyzer_id, serialized_message);
-
-            // match item {
-            //     TestItem::Throughput => {
-
-            //     },
-            //     TestItem::Latency => {
-
-            //     },
-            //     TestItem::ThroughputAndLatency => {
-
-            //     },
-            //     TestItem::Scalability => {
-
-            //     },
-            //     TestItem::Crash => {
-
-            //     },
-            //     TestItem::Malicious(MaliciousAction::Action1) => {
-
-            //     },
-            //     TestItem::Malicious(MaliciousAction::Action2) => {
-                    
-            //     }
-            // }
+            self.peer_mut()
+                .network_swarm_mut()
+                .behaviour_mut()
+                .unicast
+                .send_message(&analyzer_id, serialized_message);
         }
     }
 
+    // Start a test
+    pub fn start_test(&mut self) {
+        let message = Message {
+            interactive_message: InteractiveMessage::StartTest,
+        };
+        let serialized_message = coder::serialize_into_bytes(&message);
+        let analyzer_id = self.analyzer_id();
+        self.peer_mut()
+            .network_swarm_mut()
+            .behaviour_mut()
+            .unicast
+            .send_message(&analyzer_id, serialized_message);
+    }
+
+    // The controller's handler on the analyzer message
+    pub fn analyzer_message_handler(&mut self, message: Message) {
+        match message.interactive_message {
+            InteractiveMessage::ComponentInfo(Component::Controller(id_bytes)) => {
+                let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
+                println!("Controller PeerId: {:?}", controller_id.to_string());
+            }
+            InteractiveMessage::ComponentInfo(Component::Analyzer(id_bytes)) => {
+                let analyzer_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
+                println!("\nAnalyzer is: {:?}", analyzer_id.to_string());
+                self.add_analyzer(analyzer_id);
+            }
+            InteractiveMessage::CompletedTest(test_item) => {
+                println!("{:?}", test_item);
+            }
+            _ => {}
+        };
+    }
+
+    pub fn run_from(&mut self, args: Vec<String>) {
+        match clap_Command::try_get_matches_from(CONTROLLER_CMD.to_owned(), args.clone()) {
+            Ok(matches) => {
+                self.cmd_match(&matches);
+            }
+            Err(err) => {
+                err.print().expect("Error writing Error");
+            }
+        };
+    }
+
+    pub fn cmd_match(&mut self, matches: &ArgMatches) {
+        // let matches = self.client().arg_matches();
+
+        // if let Some(ref matches) = matches.subcommand_matches("requestsample") {
+        //     if let Some(_) = matches.subcommand_matches("baidu") {
+        //         let rt = tokio::runtime::Runtime::new().unwrap();
+        //         let async_req = async { println!("测试成功") };
+        //         rt.block_on(async_req);
+        //     };
+        // }
+
+        if let Some(ref matches) = matches.subcommand_matches("init") {
+            println!("\nBFT测试平台初始化成功！");
+            self.init();
+        }
+
+        if let Some(ref matches) = matches.subcommand_matches("test") {
+            if let Some(_) = matches.subcommand_matches("pbft") {
+                println!("\n开始进行PBFT共识协议的测试");
+            };
+
+            if let Some(_) = matches.subcommand_matches("hotstuff") {
+                
+            };
+
+            if let Some(_) = matches.subcommand_matches("chain_hotstuff") {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                let async_req =
+                    async { println!("开始进行chain_hotstuff共识协议的测试") };
+                rt.block_on(async_req);
+            };
+        }
+    }
+
+    // Framework network message handler startup function
     pub async fn message_handler_start(&mut self) {
-        let mut stdin = io::BufReader::new(io::stdin()).lines();
+        // let mut stdin = io::BufReader::new(io::stdin()).lines();
 
         loop {
             tokio::select! {
-                line = stdin.next_line() => {
-                    if let Ok(Some(command)) = line {
-                        println!("{}", command);
-                        let count = command.parse::<usize>().ok();
-                        match count {
-                            None => match &command as &str {
-                                "Init" => {
-                                    self.init();
-                                }
-                                "AssignKey" => {
-                                    self.assign_key_to_consensus_node();
-                                }
-                                "NextTestItem" => {
-                                    self.configure_analyzer();
-                                }
-                                "ProtocolStart" => {}
-                                _ => {
-                                    println!("Command is not found!");
-                                }
-                            },
-                            Some(count) => {
-                                self.make_consensus_requests(count);
-                            }
-                        }
-                    }
+                Some(args) = self.args_recevier.recv() => {
+                    // println!("{:?}", &args);
+                    self.run_from(args);
                 }
+                // line = stdin.next_line() => {
+                //     if let Ok(Some(command)) = line {
+                //         println!("{}", command);
+                //         let count = command.parse::<usize>().ok();
+                //         match count {
+                //             None => match &command as &str {
+                //                 "Init" => {
+                //                     self.init();
+                //                 }
+                //                 "AssignKey" => {
+                //                     self.assign_key_to_consensus_node();
+                //                 }
+                //                 "NextTestItem" => {
+                //                     self.configure_analyzer();
+                //                 }
+                //                 "StartTest" => {
+                //                     self.start_test();
+                //                 }
+                //                 "ProtocolStart" => {}
+                //                 _ => {
+                //                     println!("Command is not found!");
+                //                 }
+                //             },
+                //             Some(count) => {
+                //                 self.make_consensus_requests(count);
+                //             }
+                //         }
+                //     }
+                // }
                 event = self.peer.network_swarm_mut().select_next_some() => match event {
                     SwarmEvent::Behaviour(OutEvent::Unicast(UnicastEvent::Message(message))) => {
-                        let msg: CommandMessage = coder::deserialize_for_bytes(&message.data);
-                        match msg.command {
-                            // MessageType::Reply(_) => {
-                            //     self.executor.message_handler(&self.id.to_bytes(), &message.data).await;
-                            // }
-                            _ => {}
+                        let peer_id = PeerId::from_bytes(&message.source[..]).unwrap();
+                        if self.analyzer_id().to_string().eq(&peer_id.to_string()) {
+                            let message: Message = coder::deserialize_for_bytes(&message.data);
+                            self.analyzer_message_handler(message);
+                            
+                        } else if self.connected_nodes.contains_key(&peer_id.to_string()) {
+                            
                         }
+
+                        // let msg: CommandMessage = coder::deserialize_for_bytes(&message.data);
+                        // match msg.command {
+                        //     // MessageType::Reply(_) => {
+                        //     //     self.executor.message_handler(&self.id.to_bytes(), &message.data).await;
+                        //     // }
+                        //     _ => {}
+                        // }
                     }
                     SwarmEvent::Behaviour(OutEvent::Gossipsub(GossipsubEvent::Message {
                         propagation_source: _peer_id,
@@ -265,8 +379,13 @@ impl ControllerNode {
                     })) => {
                         let message: Message = coder::deserialize_for_bytes(&message.data);
                         match message.interactive_message {
+                            InteractiveMessage::ComponentInfo(Component::Controller(id_bytes)) => {
+                                let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
+                                println!("\nController PeerId: {:?}", controller_id.to_string());
+                            }
                             InteractiveMessage::ComponentInfo(Component::Analyzer(id_bytes)) => {
                                 let analyzer_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
+                                println!("\nAnalyzer is: {:?}", analyzer_id.to_string());
                                 self.add_analyzer(analyzer_id);
                             },
                             _ => {}

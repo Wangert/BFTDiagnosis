@@ -7,3 +7,9 @@ edition = "2021"
 
 [dependencies]
 libp2p = "0.43.0"
+serde = { version = "1.0.136", features = ["derive"]}
+toml = "0.5.9"
+node = { path = "../node" }
+cli = { path = "../cli" }
+network = { path = "../network" }
+utils = { path = "../utils" }
