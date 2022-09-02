@@ -1,10 +1,6 @@
 pub mod args;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}
+pub mod cmd;
+pub mod commons;
+pub mod configure;
+pub mod interact;
+pub mod client;

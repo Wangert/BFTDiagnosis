@@ -87,7 +87,7 @@ impl Peer {
                 }
                 event = swarm.select_next_some() => match event {
                     SwarmEvent::NewListenAddr { address, .. } => {
-                        println!("Listening on {:?}", address);
+                        println!("\nListening on {:?}", address);
                     }
                     SwarmEvent::Behaviour(OutEvent::Unicast(UnicastEvent::Message(msg))) => {
                         let data = String::from_utf8_lossy(&msg.data);
@@ -108,7 +108,7 @@ impl Peer {
                     }
                     SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
                         for (peer, _) in list {
-                            println!("Discovered {:?}", &peer);
+                            println!("\nDiscovered {:?}", &peer);
                             swarm.behaviour_mut().unicast.add_node_to_partial_view(&peer);
                             swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
                         }

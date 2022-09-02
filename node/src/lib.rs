@@ -1,6 +1,6 @@
 pub mod behaviour;
 pub mod basic_consensus_node;
-pub mod analysis;
+pub mod analyzer;
 pub mod message;
 pub mod common;
 pub mod controller;

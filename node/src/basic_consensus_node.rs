@@ -9,7 +9,7 @@ use crate::{
     config::ExtraInfo,
     message::{
         Command, CommandMessage, ConsensusData, ConsensusDataMessage, ConsensusEndData,
-        ConsensusStartData, Request,
+        ConsensusStartData, MaliciousAction, Request,
     },
 };
 
@@ -146,7 +146,7 @@ where
                     let request = request.unwrap();
                     let serialized_request_message = coder::serialize_into_bytes(&request);
 
-                    let consensus_start_data = ConsensusStartData { request, start_time: Local::now().timestamp_millis() as u64 };
+                    let consensus_start_data = ConsensusStartData { request, start_time: Local::now().timestamp_millis() };
                     let consensus_data_message = ConsensusDataMessage {
                         data: ConsensusData::ConsensusStartData(consensus_start_data),
                     };
@@ -180,7 +180,7 @@ where
                         } else {
                             let is_end = self.consensus_protocol_message_handler(&message.data);
                             if let ConsensusEnd::Yes(request) = is_end {
-                                let consensus_end_data = ConsensusEndData { request, completed_time: Local::now().timestamp_millis() as u64 };
+                                let consensus_end_data = ConsensusEndData { request, completed_time: Local::now().timestamp_millis() };
                                 let data = ConsensusData::ConsensusEndData(consensus_end_data);
                                 self.push_consensus_data_to_analysis_node(&data);
                             }
@@ -242,9 +242,4 @@ enum ConsensusNodeMode {
     Honest,
     Dishonest(MaliciousAction),
     Outage(usize),
-}
-
-enum MaliciousAction {
-    Action1,
-    Action2,
 }
