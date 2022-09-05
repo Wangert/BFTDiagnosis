@@ -1,4 +1,5 @@
 use crate::cmd::controller_cmd::init_cmd;
+use crate::cmd::controller_cmd::print_unfinished_test_items_cmd;
 use crate::cmd::controller_cmd::start_test_cmd;
 use crate::commons::CommandCompleter;
 use crate::commons::SubCmd;
@@ -17,15 +18,17 @@ lazy_static! {
         .author("Daslab")
         .about("BFTDiagnosis")
         .arg(
-            Arg::new("controller").short('c').long("controller").help("-c")
+            Arg::new("controller")
+                .short('c')
+                .long("controller")
+                .help("-c")
         )
-        .arg(
-            Arg::new("analyzer").short('a').long("analyzer").help("-a")
-        )
+        .arg(Arg::new("analyzer").short('a').long("analyzer").help("-a"))
         .help_expected(true)
         .subcommand(init_cmd())
+        .subcommand(print_unfinished_test_items_cmd())
         .subcommand(start_test_cmd());
-    static ref CMD_SUBCMDS: Vec<SubCmd> = subcommands(1);
+    static ref CMD_SUBCMDS: Vec<SubCmd> = subcommands();
 }
 
 lazy_static! {
@@ -34,12 +37,15 @@ lazy_static! {
         .author("Daslab")
         .about("BFTDiagnosis")
         .arg(
-            Arg::new("controller").short('c').long("controller").help("-c")
+            Arg::new("controller")
+                .short('c')
+                .long("controller")
+                .help("-c")
         )
         .help_expected(true)
         .subcommand(init_cmd())
         .subcommand(start_test_cmd());
-    static ref CONTROLLER_SUBCMDS: Vec<SubCmd> = subcommands(1);
+    static ref CONTROLLER_SUBCMDS: Vec<SubCmd> = subcommands();
 }
 
 lazy_static! {
@@ -50,7 +56,7 @@ lazy_static! {
         .help_expected(true)
         .subcommand(init_cmd())
         .subcommand(start_test_cmd());
-    static ref ANALYZER_SUBCMDS: Vec<SubCmd> = subcommands(2);
+    static ref ANALYZER_SUBCMDS: Vec<SubCmd> = subcommands();
 }
 
 // 获取全部子命令，用于构建commandcompleter
@@ -79,13 +85,9 @@ pub fn get_command_completer() -> CommandCompleter {
     CommandCompleter::new(CMD_SUBCMDS.to_vec())
 }
 
-fn subcommands(index: u64) -> Vec<SubCmd> {
+fn subcommands() -> Vec<SubCmd> {
     let mut subcmds = vec![];
-    if index == 1 {
-        all_subcommand(CONTROLLER_CMD.clone().borrow(), 0, &mut subcmds);
-    } else if index == 2 {
-        all_subcommand(ANALYZER_CMD.clone().borrow(), 0, &mut subcmds);
-    };
+    all_subcommand(CMD.clone().borrow(), 0, &mut subcmds);
     subcmds
 }
 

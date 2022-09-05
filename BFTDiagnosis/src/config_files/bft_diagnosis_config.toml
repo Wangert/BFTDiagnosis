@@ -1,26 +1,19 @@
-[Base]
-duration = ""
-
-[Node]
-controller_node_id = ""
-analysis_node_id = ""
-
 # Test Option Configuration
-# Performance testing
-[Throughput]
-enable = "true"
+[throughput]
+enable = true
 
-[Latency]
-enable = "true"
+[latency]
+enable = false
 
-[Scalability]
-enable = "true"
+[scalability]
+enable = false
+max = 8
+internal = 2
 
 # Security testing: crash and malicious behaviours
-[Crash]
-enable = "false"
+[crash]
+enable = true
 
-[Malicious]
-enable = "false"
-# 
-behaviour = ""
+[malicious]
+enable = true
+behaviour = "action1"

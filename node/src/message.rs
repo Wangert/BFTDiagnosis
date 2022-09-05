@@ -61,7 +61,7 @@ pub enum TestItem {
     // testing the throughput and latency of the protocol
     ThroughputAndLatency,
     // testing the scalability of the protocol 
-    // (number of current nodes, maximum number of nodes)
+    // (maximum number of nodes, increment interval)
     Scalability(u16, u16),
     // testing protocol security in the case of node crash, including the number of crash nodes
     Crash(u16),

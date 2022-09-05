@@ -1,6 +1,44 @@
 use std::{fs::File, io::Read};
 
+use node::controller::config::BFTDiagnosisConfig;
 use serde::Deserialize;
+
+// #[derive(Debug, Deserialize, Clone)]
+// pub struct BFTDiagnosisConfig {
+//     pub throughput: Option<Throughput>,
+//     pub latency: Option<Latency>,
+//     pub scalability: Option<Scalability>,
+//     pub crash: Option<Crash>,
+//     pub malicious: Option<Malicious>,
+
+// }
+
+// #[derive(Debug, Deserialize, Clone)]
+// pub struct Throughput {
+//     pub enable: Option<bool>,
+// }
+
+// #[derive(Debug, Deserialize, Clone)]
+// pub struct Latency {
+//     pub enable: Option<bool>,
+// }
+
+// #[derive(Debug, Deserialize, Clone)]
+// pub struct Scalability {
+//     pub enable: Option<bool>,
+//     pub max: Option<u16>,
+//     pub internal: Option<u16>,
+// }
+
+// #[derive(Debug, Deserialize, Clone)]
+// pub struct Crash {
+//     pub enable: Option<bool>,
+// }
+
+// #[derive(Debug, Deserialize, Clone)]
+// pub struct Malicious {
+//     pub enable: Option<bool>,
+// }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ControllerConfig {
@@ -52,6 +90,27 @@ pub fn read_analyzer_config() -> AnalyzerConfig {
     let analyzer_conifg: AnalyzerConfig = toml::from_str(&str_val).unwrap();
 
     analyzer_conifg
+}
+
+pub fn read_bft_diagnosis_config() -> BFTDiagnosisConfig {
+    let config_file_path = "./BFTDiagnosis/src/config_files/bft_diagnosis_config.toml";
+    let mut config_file = match File::open(config_file_path) {
+        Ok(file) => file,
+        Err(e) => panic!("Read bft_diagnosis config file error: {}", e)
+    };
+
+    let mut str_val = String::new();
+    match config_file.read_to_string(&mut str_val) {
+        Ok(s) => s,
+        Err(e) => panic!("Read file error: {}", e)
+    };
+
+    let bft_diagnosis_conifg: BFTDiagnosisConfig = toml::from_str(&str_val).unwrap();
+
+    println!("{:#?}", &bft_diagnosis_conifg);
+    bft_diagnosis_conifg
+
+    
 }
 
 #[cfg(test)]

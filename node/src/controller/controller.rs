@@ -3,7 +3,7 @@ use std::{
     error::Error,
 };
 
-use cli::{client::Client, cmd::rootcmd::CONTROLLER_CMD};
+use cli::{client::Client, cmd::rootcmd::{CONTROLLER_CMD, CMD}};
 use libp2p::{
     futures::StreamExt,
     gossipsub::{GossipsubEvent, IdentTopic},
@@ -32,7 +32,7 @@ use crate::{
 
 use clap::{Command as clap_Command, ArgMatches};
 
-use super::executor::Executor;
+use super::{executor::Executor, config::BFTDiagnosisConfig};
 
 pub struct Controller {
     id: PeerId,
@@ -49,7 +49,7 @@ pub struct Controller {
 }
 
 impl Controller {
-    pub fn new(peer: Peer, analyzer_id: PeerId, port: &str) -> Self {
+    pub fn new(peer: Peer, port: &str) -> Self {
         let db_path = format!("./storage/data/{}_public_keys", port);
         let executor = Executor::new(&db_path);
         let (args_sender, args_recevier) = mpsc::channel::<Vec<String>>(10);
@@ -61,12 +61,71 @@ impl Controller {
             executor,
             connected_nodes: HashMap::new(),
 
-            analyzer_id,
+            analyzer_id: PeerId::random(),
             test_items: Vec::new(),
 
             client: Client::new(matches),
             args_sender,
             args_recevier,
+        }
+    }
+
+    pub fn configure(&mut self, bft_diagnosis_config: BFTDiagnosisConfig) {
+        let mut throughput_flag = false;
+        let mut latency_flag = false;
+
+        if let Some(throughput) = bft_diagnosis_config.throughput {
+            if let Some(true) = throughput.enable {
+                throughput_flag = true;
+            }
+        }
+
+        if let Some(latency) = bft_diagnosis_config.latency {
+            if let Some(true) = latency.enable {
+                latency_flag = true;
+            }
+        }
+
+        if throughput_flag && latency_flag {
+            self.add_test_item(TestItem::ThroughputAndLatency);
+        } else if throughput_flag && !latency_flag {
+            self.add_test_item(TestItem::Throughput);
+        } else if !throughput_flag && latency_flag {
+            self.add_test_item(TestItem::Latency);
+        }
+
+        if let Some(scalability) = bft_diagnosis_config.scalability {
+            if matches!(scalability.enable, Some(true)) {
+                let max = if let Some(max) = scalability.max {
+                    max
+                } else {
+                    0
+                };
+
+                let internal = if let Some(internal) = scalability.internal {
+                    internal
+                } else {
+                    0
+                };
+
+                _ = self.add_test_item(TestItem::Scalability(max, internal));
+            }
+        }
+
+        if let Some(crash) = bft_diagnosis_config.crash {
+            if let Some(true) = crash.enable {
+                self.add_test_item(TestItem::Crash(3));
+            }
+        }
+
+        if let Some(malicious) = bft_diagnosis_config.malicious {
+            if matches!(malicious.enable, Some(true)) {
+                if let Some(behaviour) = malicious.behaviour {
+                    if matches!(behaviour.cmp(&"action1".to_string()), std::cmp::Ordering::Equal) {
+                        self.add_test_item(TestItem::Malicious(MaliciousAction::Action1));
+                    }
+                }
+            }
         }
     }
 
@@ -236,6 +295,20 @@ impl Controller {
         }
     }
 
+    pub fn print_unfinished_test_items(&self) {
+        println!("\nCurrently unfinished test items：");
+        for item in &self.test_items {
+            match item {
+                TestItem::Throughput => println!("Throughput"),
+                TestItem::Latency => println!("Latency"),
+                TestItem::ThroughputAndLatency => println!("ThroughputAndLatency"),
+                TestItem::Scalability(_, _) => println!("Scalability"),
+                TestItem::Crash(_) => println!("Crash"),
+                TestItem::Malicious(action) => println!("Malicious({:?})", action),
+            }
+        }
+    }
+
     // Start a test
     pub fn start_test(&mut self) {
         let message = Message {
@@ -270,7 +343,7 @@ impl Controller {
     }
 
     pub fn run_from(&mut self, args: Vec<String>) {
-        match clap_Command::try_get_matches_from(CONTROLLER_CMD.to_owned(), args.clone()) {
+        match clap_Command::try_get_matches_from(CMD.to_owned(), args.clone()) {
             Ok(matches) => {
                 self.cmd_match(&matches);
             }
@@ -294,6 +367,11 @@ impl Controller {
         if let Some(ref matches) = matches.subcommand_matches("init") {
             println!("\nBFT测试平台初始化成功！");
             self.init();
+        }
+
+        if let Some(ref matches) = matches.subcommand_matches("printUnfinishedTestItems") {
+            // println!("\nBFT测试平台初始化成功！");
+            self.print_unfinished_test_items();
         }
 
         if let Some(ref matches) = matches.subcommand_matches("test") {
@@ -412,7 +490,7 @@ impl Controller {
                         }
                     }
                     SwarmEvent::NewListenAddr { address, .. } => {
-                        println!("Listening on {:?}", address);
+                        println!("\nListening on {:?}", address);
                     }
                     _ => {}
                 }

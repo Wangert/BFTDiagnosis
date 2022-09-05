@@ -5,7 +5,7 @@ use node::{analyzer::analyzer::Analyzer, controller::controller::Controller};
 use utils::parse::into_ip4_tcp_multiaddr;
 
 use std::error::Error;
-use crate::config::{read_controller_config, read_analyzer_config};
+use crate::config::{read_controller_config, read_analyzer_config, read_bft_diagnosis_config};
 
 pub struct BFTDiagnosisFramework {
     // pub controller: Controller,
@@ -36,9 +36,15 @@ impl BFTDiagnosisFramework {
 
             let mut node = Controller::new(
                 local_peer,
-                PeerId::random(),
                 controller_ip_port.to_string().as_str(),
             );
+
+            let bft_diagnosis_config = read_bft_diagnosis_config();
+
+            println!("youqu:{:#?}", &bft_diagnosis_config);
+
+
+            node.configure(bft_diagnosis_config);
 
             let args_sender = node.args_sender();
             self.client.run(args_sender, ClientType::Controller);

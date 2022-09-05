@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error, sync::Arc};
 
-use cli::{client::Client, cmd::rootcmd::ANALYZER_CMD};
+use cli::{client::Client, cmd::rootcmd::{ANALYZER_CMD, CMD}};
 use libp2p::{
     futures::StreamExt,
     gossipsub::{GossipsubEvent, IdentTopic},
@@ -238,7 +238,7 @@ impl Analyzer {
     }
 
     pub fn run_from(&mut self, args: Vec<String>) {
-        match clap_Command::try_get_matches_from(ANALYZER_CMD.to_owned(), args.clone()) {
+        match clap_Command::try_get_matches_from(CMD.to_owned(), args.clone()) {
             Ok(matches) => {
                 self.cmd_match(&matches);
             }
