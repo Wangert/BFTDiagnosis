@@ -36,7 +36,7 @@ impl BaseSwarm {
         &mut self,
         peer_id: PeerId,
         keypair: Keypair,
-        is_consensus_node: bool,
+        _is_consensus_node: bool,
     ) -> Result<(), Box<dyn Error>> {
         // create transport
         let transport = create_base_transport(&keypair).await?;
@@ -79,21 +79,21 @@ impl BaseSwarm {
         )
         .expect("Gossipsub correct configuration");
 
-        if is_consensus_node == true {
-            let topic1 = IdentTopic::new("Consensus");
-            gossipsub.subscribe(&topic1).unwrap();
-            let topic2 = IdentTopic::new("DistributePK");
-            gossipsub.subscribe(&topic2).unwrap();
-            let topic3 = IdentTopic::new("Initialization");
-            gossipsub.subscribe(&topic3).unwrap();
-        } else {
-            let topic1 = IdentTopic::new("ControllerAndAnalyzer");
-            gossipsub.subscribe(&topic1).unwrap();
-            let topic2 = IdentTopic::new("DistributePK");
-            gossipsub.subscribe(&topic2).unwrap();
-            let topic3 = IdentTopic::new("Initialization");
-            gossipsub.subscribe(&topic3).unwrap();
-        }
+        // if is_consensus_node == true {
+        //     let topic1 = IdentTopic::new("Consensus");
+        //     gossipsub.subscribe(&topic1).unwrap();
+        //     let topic2 = IdentTopic::new("DistributePK");
+        //     gossipsub.subscribe(&topic2).unwrap();
+        //     let topic3 = IdentTopic::new("Initialization");
+        //     gossipsub.subscribe(&topic3).unwrap();
+        // } else {
+        //     let topic1 = IdentTopic::new("ControllerAndAnalyzer");
+        //     gossipsub.subscribe(&topic1).unwrap();
+        //     let topic2 = IdentTopic::new("DistributePK");
+        //     gossipsub.subscribe(&topic2).unwrap();
+        //     let topic3 = IdentTopic::new("Initialization");
+        //     gossipsub.subscribe(&topic3).unwrap();
+        // }
 
         // create mdns
         let mdns = Mdns::new(MdnsConfig::default()).await?;

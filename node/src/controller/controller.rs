@@ -3,7 +3,10 @@ use std::{
     error::Error,
 };
 
-use cli::{client::Client, cmd::rootcmd::{CONTROLLER_CMD, CMD}};
+use cli::{
+    client::Client,
+    cmd::rootcmd::{CMD, CONTROLLER_CMD},
+};
 use libp2p::{
     futures::StreamExt,
     gossipsub::{GossipsubEvent, IdentTopic},
@@ -19,7 +22,10 @@ use network::{
     peer::Peer,
 };
 
-use tokio::{io::{self, AsyncBufReadExt}, sync::mpsc::{Sender, Receiver, self}};
+use tokio::{
+    io::{self, AsyncBufReadExt},
+    sync::mpsc::{self, Receiver, Sender},
+};
 use utils::coder::{self, serialize_into_bytes};
 
 use crate::{
@@ -30,15 +36,18 @@ use crate::{
     },
 };
 
-use clap::{Command as clap_Command, ArgMatches};
+use clap::{ArgMatches, Command as clap_Command};
 
-use super::{executor::Executor, config::BFTDiagnosisConfig};
+use super::{config::BFTDiagnosisConfig, executor::Executor};
 
 pub struct Controller {
     id: PeerId,
     peer: Peer,
     executor: Executor,
     connected_nodes: HashMap<String, PeerId>,
+
+    consensus_nodes: HashSet<PeerId>,
+    waiting_consensus_nodes: HashSet<PeerId>,
 
     analyzer_id: PeerId,
     test_items: Vec<TestItem>,
@@ -60,6 +69,9 @@ impl Controller {
             peer,
             executor,
             connected_nodes: HashMap::new(),
+
+            consensus_nodes: HashSet::new(),
+            waiting_consensus_nodes: HashSet::new(),
 
             analyzer_id: PeerId::random(),
             test_items: Vec::new(),
@@ -108,7 +120,7 @@ impl Controller {
                     0
                 };
 
-                _ = self.add_test_item(TestItem::Scalability(max, internal));
+                _ = self.add_test_item(TestItem::Scalability(4, max, internal));
             }
         }
 
@@ -121,7 +133,10 @@ impl Controller {
         if let Some(malicious) = bft_diagnosis_config.malicious {
             if matches!(malicious.enable, Some(true)) {
                 if let Some(behaviour) = malicious.behaviour {
-                    if matches!(behaviour.cmp(&"action1".to_string()), std::cmp::Ordering::Equal) {
+                    if matches!(
+                        behaviour.cmp(&"action1".to_string()),
+                        std::cmp::Ordering::Equal
+                    ) {
                         self.add_test_item(TestItem::Malicious(MaliciousAction::Action1));
                     }
                 }
@@ -131,13 +146,36 @@ impl Controller {
 
     pub async fn peer_start(&mut self) -> Result<(), Box<dyn Error>> {
         self.peer_mut().swarm_start(false).await?;
-
         let arg_sender = self.args_sender.clone();
         // self.client().run(arg_sender, 1);
-
+        self.subscribe_topics();
         self.message_handler_start().await;
 
         Ok(())
+    }
+
+    pub fn subscribe_topics(&mut self) {
+        let topic_1 = IdentTopic::new("Initialization");
+        if let Err(e) = self
+            .peer_mut()
+            .network_swarm_mut()
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&topic_1)
+        {
+            eprintln!("Subscribe error:{:?}", e);
+        };
+
+        let topic_2 = IdentTopic::new("Reset");
+        if let Err(e) = self
+            .peer_mut()
+            .network_swarm_mut()
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&topic_2)
+        {
+            eprintln!("Subscribe error:{:?}", e);
+        };
     }
 
     // Controller's id
@@ -156,6 +194,14 @@ impl Controller {
 
     pub fn executor_mut(&mut self) -> &mut Executor {
         &mut self.executor
+    }
+
+    pub fn consensus_nodes_set(&mut self) -> &mut HashSet<PeerId> {
+        &mut self.consensus_nodes
+    }
+
+    pub fn waiting_consensus_nodes_set(&mut self) -> &mut HashSet<PeerId> {
+        &mut self.waiting_consensus_nodes
     }
 
     pub fn client(&self) -> Client {
@@ -295,6 +341,40 @@ impl Controller {
         }
     }
 
+    pub fn reset_consensus_node(&mut self) {
+        let message = Message {
+            interactive_message: InteractiveMessage::Reset,
+        };
+
+        let serialized_message = coder::serialize_into_bytes(&message);
+
+        let topic = IdentTopic::new("Reset");
+        if let Err(e) = self
+            .peer_mut()
+            .network_swarm_mut()
+            .behaviour_mut()
+            .gossipsub
+            .publish(topic.clone(), serialized_message)
+        {
+            eprintln!("Publish message error:{:?}", e);
+        }
+    }
+
+    pub fn scalability_test_next(&mut self, test_item: TestItem) {
+        let message = Message {
+            interactive_message: InteractiveMessage::TestItem(test_item),
+        };
+
+        let serialized_message = coder::serialize_into_bytes(&message);
+
+        let analyzer_id = self.analyzer_id();
+        self.peer_mut()
+            .network_swarm_mut()
+            .behaviour_mut()
+            .unicast
+            .send_message(&analyzer_id, serialized_message);
+    }
+
     pub fn print_unfinished_test_items(&self) {
         println!("\nCurrently unfinished test items：");
         for item in &self.test_items {
@@ -302,7 +382,7 @@ impl Controller {
                 TestItem::Throughput => println!("Throughput"),
                 TestItem::Latency => println!("Latency"),
                 TestItem::ThroughputAndLatency => println!("ThroughputAndLatency"),
-                TestItem::Scalability(_, _) => println!("Scalability"),
+                TestItem::Scalability(_, _, _) => println!("Scalability"),
                 TestItem::Crash(_) => println!("Crash"),
                 TestItem::Malicious(action) => println!("Malicious({:?})", action),
             }
@@ -336,7 +416,38 @@ impl Controller {
                 self.add_analyzer(analyzer_id);
             }
             InteractiveMessage::CompletedTest(test_item) => {
-                println!("{:?}", test_item);
+                self.reset_consensus_node();
+                println!("{:?}", test_item.clone());
+                match test_item {
+                    TestItem::Scalability(count, max, internal) => {
+                        if count + internal <= max {
+                            self.scalability_test_next(test_item);
+                        } else {
+                            self.configure_analyzer();
+                        }
+                    },
+                    TestItem::Crash(_) => {
+
+                    },
+                    TestItem::Malicious(_) => {
+
+                    },
+                    _ => {
+                        self.configure_analyzer();
+                    }
+                }
+            }
+            _ => {}
+        };
+
+    }
+
+    // The controller's handler on the consensus node message
+    pub fn consensus_node_message_handler(&mut self, peer_id: PeerId, message: Message) {
+        match message.interactive_message {
+            InteractiveMessage::SubscribeConsensusTopicSuccess => {
+                self.waiting_consensus_nodes_set().remove(&peer_id);
+                self.consensus_nodes_set().insert(peer_id);
             }
             _ => {}
         };
@@ -356,14 +467,6 @@ impl Controller {
     pub fn cmd_match(&mut self, matches: &ArgMatches) {
         // let matches = self.client().arg_matches();
 
-        // if let Some(ref matches) = matches.subcommand_matches("requestsample") {
-        //     if let Some(_) = matches.subcommand_matches("baidu") {
-        //         let rt = tokio::runtime::Runtime::new().unwrap();
-        //         let async_req = async { println!("测试成功") };
-        //         rt.block_on(async_req);
-        //     };
-        // }
-
         if let Some(ref matches) = matches.subcommand_matches("init") {
             println!("\nBFT测试平台初始化成功！");
             self.init();
@@ -379,9 +482,7 @@ impl Controller {
                 println!("\n开始进行PBFT共识协议的测试");
             };
 
-            if let Some(_) = matches.subcommand_matches("hotstuff") {
-                
-            };
+            if let Some(_) = matches.subcommand_matches("hotstuff") {};
 
             if let Some(_) = matches.subcommand_matches("chain_hotstuff") {
                 let rt = tokio::runtime::Runtime::new().unwrap();
@@ -437,9 +538,10 @@ impl Controller {
                         if self.analyzer_id().to_string().eq(&peer_id.to_string()) {
                             let message: Message = coder::deserialize_for_bytes(&message.data);
                             self.analyzer_message_handler(message);
-                            
+
                         } else if self.connected_nodes.contains_key(&peer_id.to_string()) {
-                            
+                            let message: Message = coder::deserialize_for_bytes(&message.data);
+                            self.consensus_node_message_handler(peer_id, message);
                         }
 
                         // let msg: CommandMessage = coder::deserialize_for_bytes(&message.data);
@@ -471,11 +573,13 @@ impl Controller {
                         //self.executor.message_handler(&self.id.to_bytes(), &message.data).await;
                     }
                     SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
-                        let swarm = self.peer.network_swarm_mut();
+                        // let swarm = self.peer.network_swarm_mut();
+                        // let waiting_consensus_nodes = self.;
                         for (peer, _) in list {
                             println!("Discovered {:?}", &peer);
-                            swarm.behaviour_mut().unicast.add_node_to_partial_view(&peer);
-                            swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
+                            self.peer.network_swarm_mut().behaviour_mut().unicast.add_node_to_partial_view(&peer);
+                            self.peer.network_swarm_mut().behaviour_mut().gossipsub.add_explicit_peer(&peer);
+                            self.waiting_consensus_nodes.insert(peer);
                             // self.connected_nodes.insert(peer.to_string(), peer.clone());
                         }
                     }

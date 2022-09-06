@@ -98,7 +98,7 @@ pub async fn run(args_sender: Sender<Vec<String>>, client_type: ClientType) {
         let mut p = "BFTDiagnosis(Controller)>> ".to_string();
         match client_type {
             ClientType::Analyzer => {
-                p = "BFTDiagnosis(Analyzer)>>".to_string()
+                p = "BFTDiagnosis(Analyzer)>> ".to_string()
             }
             _ => {}
         }

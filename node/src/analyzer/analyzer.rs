@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error, sync::Arc};
 
-use cli::{client::Client, cmd::rootcmd::{ANALYZER_CMD, CMD}};
+use cli::{client::Client, cmd::rootcmd::{CMD}};
 use libp2p::{
     futures::StreamExt,
     gossipsub::{GossipsubEvent, IdentTopic},
@@ -58,7 +58,7 @@ pub struct Analyzer {
 }
 
 impl Analyzer {
-    pub fn new(peer: Peer, controller_id: PeerId, port: &str) -> Self {
+    pub fn new(peer: Peer, port: &str) -> Self {
         // let db_path = format!("./storage/data/{}_public_keys", port);
         let (args_sender, args_recevier) = mpsc::channel::<Vec<String>>(10);
 
@@ -67,7 +67,7 @@ impl Analyzer {
             id: peer.id,
             peer,
             connected_nodes: HashMap::new(),
-            controller_id,
+            controller_id: PeerId::random(),
             other_analyzer_node: Vec::new(),
             current_test_item: None,
             data_warehouse: DataWarehouse::new(),
@@ -84,9 +84,23 @@ impl Analyzer {
 
         // let arg_sender = self.args_sender.clone();
         // self.client().run(arg_sender, 2);
+        self.subscribe_topics();
         self.message_handler_start().await;
 
         Ok(())
+    }
+
+    pub fn subscribe_topics(&mut self) {
+        let topic = IdentTopic::new("Initialization");
+        if let Err(e) = self
+            .peer_mut()
+            .network_swarm_mut()
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&topic)
+        {
+            eprintln!("Subscribe error:{:?}", e);
+        };
     }
 
     pub fn id(&self) -> PeerId {
@@ -168,7 +182,9 @@ impl Analyzer {
                     data_warehouse.compute_throughput();
                     data_warehouse.compute_latency();
                 }
-                TestItem::Scalability(_, _) => {}
+                TestItem::Scalability(count, max, _) => {
+                    data_warehouse.compute_scalability(count);
+                }
                 TestItem::Crash(_) => {}
                 TestItem::Malicious(_) => {}
             }
@@ -202,6 +218,7 @@ impl Analyzer {
             InteractiveMessage::ComponentInfo(Component::Analyzer(id_bytes)) => {}
             InteractiveMessage::TestItem(item) => {
                 self.set_test_item(item);
+                self.data_warehouse().reset();
             }
             InteractiveMessage::StartTest => {
                 self.start_test();
@@ -255,6 +272,18 @@ impl Analyzer {
         if let Some(ref matches) = matches.subcommand_matches("init") {
             println!("BFT测试平台初始化成功！");
             self.init();
+        }
+
+        if let Some(ref matches) = matches.subcommand_matches("printThroughputResults") {
+            self.data_warehouse().print_throughput_results();
+        }
+
+        if let Some(ref matches) = matches.subcommand_matches("printLatencyResults") {
+            self.data_warehouse().print_latency_results();
+        }
+
+        if let Some(ref matches) = matches.subcommand_matches("printScalabilityResults") {
+            self.data_warehouse().print_scalability_results();
         }
 
         if let Some(ref matches) = matches.subcommand_matches("test") {
@@ -354,7 +383,7 @@ impl Analyzer {
                         }
                     }
                     SwarmEvent::NewListenAddr { address, .. } => {
-                        println!("Listening on {:?}", address);
+                        println!("\nListening on {:?}", address);
                     }
                     _ => {}
                 }

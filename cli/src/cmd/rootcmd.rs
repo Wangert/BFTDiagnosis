@@ -1,4 +1,7 @@
 use crate::cmd::controller_cmd::init_cmd;
+use crate::cmd::controller_cmd::print_latency_results_cmd;
+use crate::cmd::controller_cmd::print_scalability_results_cmd;
+use crate::cmd::controller_cmd::print_throughput_results_cmd;
 use crate::cmd::controller_cmd::print_unfinished_test_items_cmd;
 use crate::cmd::controller_cmd::start_test_cmd;
 use crate::commons::CommandCompleter;
@@ -27,6 +30,9 @@ lazy_static! {
         .help_expected(true)
         .subcommand(init_cmd())
         .subcommand(print_unfinished_test_items_cmd())
+        .subcommand(print_throughput_results_cmd())
+        .subcommand(print_latency_results_cmd())
+        .subcommand(print_scalability_results_cmd())
         .subcommand(start_test_cmd());
     static ref CMD_SUBCMDS: Vec<SubCmd> = subcommands();
 }

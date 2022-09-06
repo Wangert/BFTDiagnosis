@@ -43,7 +43,6 @@ impl BFTDiagnosisFramework {
 
             println!("youqu:{:#?}", &bft_diagnosis_config);
 
-
             node.configure(bft_diagnosis_config);
 
             let args_sender = node.args_sender();
@@ -63,7 +62,6 @@ impl BFTDiagnosisFramework {
 
             let mut node = Analyzer::new(
                 local_peer,
-                PeerId::random(),
                 analyzer_ip_port.to_string().as_str(),
             );
 

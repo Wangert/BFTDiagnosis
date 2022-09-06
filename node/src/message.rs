@@ -44,6 +44,12 @@ pub enum InteractiveMessage {
     StartTest,
     // test item has completed the interaction of the test
     CompletedTest(TestItem),
+
+    SubscribeConsensusTopic,
+    SubscribeConsensusTopicSuccess,
+
+    ProtocolStart,
+    Reset,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -61,8 +67,8 @@ pub enum TestItem {
     // testing the throughput and latency of the protocol
     ThroughputAndLatency,
     // testing the scalability of the protocol 
-    // (maximum number of nodes, increment interval)
-    Scalability(u16, u16),
+    // (number of nodes, maximum number of nodes, increment interval)
+    Scalability(u16, u16, u16),
     // testing protocol security in the case of node crash, including the number of crash nodes
     Crash(u16),
     // testing protocol security in the case of malicious nodes

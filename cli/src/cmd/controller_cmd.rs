@@ -11,6 +11,21 @@ pub fn print_unfinished_test_items_cmd() -> Command<'static> {
         .about("printUnfinishedTestItems")
 }
 
+pub fn print_throughput_results_cmd() -> Command<'static> {
+    clap::Command::new("printThroughputResults")
+        .about("printThroughputResults")
+}
+
+pub fn print_latency_results_cmd() -> Command<'static> {
+    clap::Command::new("printLatencyResults")
+        .about("printLatencyResults")
+}
+
+pub fn print_scalability_results_cmd() -> Command<'static> {
+    clap::Command::new("printScalabilityResults")
+        .about("printScalabilityResults")
+}
+
 pub fn start_test_cmd() -> Command<'static> {
     clap::Command::new("test")
         .about("start_test")
