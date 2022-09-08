@@ -35,7 +35,7 @@ where
 
         let serialized_consensus_data_message = coder::serialize_into_bytes(&consensus_data_message);
 
-        let analysis_node_id = self.analysis_node_id();
+        let analysis_node_id = self.analyzer_id();
         self.peer_mut().network_swarm_mut().behaviour_mut().unicast.send_message(&analysis_node_id, serialized_consensus_data_message);
     }
 }

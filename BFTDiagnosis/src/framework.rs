@@ -1,11 +1,14 @@
-use cli::{client::{Client, ClientType}, cmd::rootcmd::CMD};
+use cli::{
+    client::{Client, ClientType},
+    cmd::rootcmd::CMD,
+};
 use libp2p::PeerId;
 use network::peer::Peer;
-use node::{analyzer::analyzer::Analyzer, controller::controller::Controller};
+use node::{analyzer::analyzer::Analyzer, controller::controller::Controller, basic_consensus_node::ConsensusNode, example_consensus_node::{test_log::TestLog, test_state::TestState}};
 use utils::parse::into_ip4_tcp_multiaddr;
 
+use crate::config::{read_analyzer_config, read_bft_diagnosis_config, read_controller_config};
 use std::error::Error;
-use crate::config::{read_controller_config, read_analyzer_config};
 
 pub struct BFTDiagnosisFramework {
     // pub controller: Controller,
@@ -34,11 +37,13 @@ impl BFTDiagnosisFramework {
 
             // let mut node = Node::new(Box::new(local_peer), &args.swarm_port.to_string());
 
-            let mut node = Controller::new(
-                local_peer,
-                PeerId::random(),
-                controller_ip_port.to_string().as_str(),
-            );
+            let mut node = Controller::new(local_peer, controller_ip_port.to_string().as_str());
+
+            let bft_diagnosis_config = read_bft_diagnosis_config();
+
+            // println!("youqu:{:#?}", &bft_diagnosis_config);
+
+            node.configure(bft_diagnosis_config);
 
             let args_sender = node.args_sender();
             self.client.run(args_sender, ClientType::Controller);
@@ -46,24 +51,50 @@ impl BFTDiagnosisFramework {
         } else if self.client.arg_matches().is_present("analyzer") {
             println!("Analyzer");
             let analyzer_config = read_analyzer_config();
-            let analyzer_ip_addr = analyzer_config.clone().network.unwrap().ip_addr.unwrap();
-            let analyzer_ip_port = analyzer_config.network.unwrap().ip_port.unwrap().clone();
 
-            let swarm_addr =
-                into_ip4_tcp_multiaddr(analyzer_ip_addr.as_str(), analyzer_ip_port);
+            println!("{:#?}", &analyzer_config);
+            let analyzer_ip_addr = analyzer_config.clone().network.unwrap().ip_addr.unwrap();
+            let analyzer_ip_port = analyzer_config.clone().network.unwrap().ip_port.unwrap().clone();
+
+            let performance_test_duration = analyzer_config.clone().execution.unwrap().performance_duration.unwrap();
+            let performance_test_internal = analyzer_config.clone().execution.unwrap().performance_internal.unwrap();
+            let crash_test_duration = analyzer_config.execution.unwrap().crash_duration.unwrap();
+
+            let swarm_addr = into_ip4_tcp_multiaddr(analyzer_ip_addr.as_str(), analyzer_ip_port);
             let local_peer = Peer::new(swarm_addr);
 
             // let mut node = Node::new(Box::new(local_peer), &args.swarm_port.to_string());
 
-            let mut node = Analyzer::new(
-                local_peer,
-                PeerId::random(),
-                analyzer_ip_port.to_string().as_str(),
-            );
+            let mut node = Analyzer::new(local_peer, performance_test_duration, performance_test_internal, crash_test_duration);
 
             let args_sender = node.args_sender();
             self.client.run(args_sender, ClientType::Analyzer);
             node.peer_start().await?;
+        } else if self.client.arg_matches().is_present("consensus") {
+            println!("OK");
+            if let Some(values) = self.client.arg_matches().values_of("consensus") {
+                let msg: Vec<_> = values.collect();
+
+                println!("{}", msg[0]);
+                // let data = msg[0].split_at(msg[0].len() - 1);
+                // let data = data.0.split_at(1);
+                // println!("{}", data.1);
+                // println!("{:?}", ip);
+
+                let swarm_addr = into_ip4_tcp_multiaddr(
+                    msg[0],
+                    msg[1].parse::<i32>().unwrap().try_into().unwrap(),
+                );
+                let local_peer = Peer::new(swarm_addr);
+                println!(
+                    "\nConsensus node has generated.PeerId is : {:?}",
+                    local_peer.id
+                );
+                
+                let mut node: ConsensusNode<TestLog, TestState> = ConsensusNode::new(local_peer, msg[0]);
+                self.client.consensus_run();
+                node.network_start().await?;
+            }
         }
 
         Ok(())

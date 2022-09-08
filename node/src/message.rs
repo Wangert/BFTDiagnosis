@@ -5,6 +5,8 @@ use serde::{Serialize, Deserialize};
 use threshold_crypto::{PublicKeyShare, SignatureShare, Signature};
 use utils::crypto::threshold_signature::TBLSKey;
 
+use crate::basic_consensus_node::ConsensusNodeMode;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Command {
     // Make a consensus request
@@ -41,14 +43,24 @@ pub enum InteractiveMessage {
     // protocol test items, including test content
     TestItem(TestItem),
     // interactive information to start the test
-    StartTest,
+    StartTest(u64),
     // test item has completed the interaction of the test
     CompletedTest(TestItem),
+
+    SubscribeConsensusTopic(u64),
+    SubscribeConsensusTopicSuccess,
+
+    ConsensusNodeMode(ConsensusNodeMode),
+    ConsensusNodeModeSuccess,
+
+    ProtocolStart(u64),
+    Reset(u64),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Message {
     pub interactive_message: InteractiveMessage,
+    pub source: Vec<u8>,
 }
 
 // Protocol test item type
@@ -61,10 +73,11 @@ pub enum TestItem {
     // testing the throughput and latency of the protocol
     ThroughputAndLatency,
     // testing the scalability of the protocol 
-    // (number of current nodes, maximum number of nodes)
-    Scalability(u16, u16),
+    // (number of nodes, maximum number of nodes, increment interval)
+    Scalability(u16, u16, u16),
     // testing protocol security in the case of node crash, including the number of crash nodes
-    Crash(u16),
+    // (number of crash nodes, maximum number of crash nodes)
+    Crash(u16, u16),
     // testing protocol security in the case of malicious nodes
     Malicious(MaliciousAction),
 }

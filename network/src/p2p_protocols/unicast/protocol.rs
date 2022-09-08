@@ -1,9 +1,12 @@
-use std::{iter, pin::Pin, fmt, io, error};
+use std::{error, fmt, io, iter, pin::Pin};
 
-use futures::{AsyncRead, AsyncWrite, Future, AsyncWriteExt};
-use libp2p::{core::{UpgradeInfo, upgrade}, InboundUpgrade, OutboundUpgrade};
+use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, Future};
+use libp2p::{
+    core::{upgrade, UpgradeInfo},
+    InboundUpgrade, OutboundUpgrade,
+};
+use serde::{Deserialize, Serialize};
 use utils::coder;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct UnicastProtocol;
@@ -18,7 +21,7 @@ impl UpgradeInfo for UnicastProtocol {
 }
 
 impl<TSocket> InboundUpgrade<TSocket> for UnicastProtocol
-where 
+where
     TSocket: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
     type Output = UnicastMessage;
@@ -54,7 +57,7 @@ impl UpgradeInfo for UnicastMessage {
     }
 }
 
-impl<TSocket> OutboundUpgrade<TSocket> for UnicastMessage 
+impl<TSocket> OutboundUpgrade<TSocket> for UnicastMessage
 where
     TSocket: AsyncWrite + AsyncRead + Send + Unpin + 'static,
 {
@@ -65,6 +68,7 @@ where
     fn upgrade_outbound(self, mut socket: TSocket, _: Self::Info) -> Self::Future {
         Box::pin(async move {
             let message_bytes = coder::serialize_into_bytes(&self);
+            // println!("Message bytes: {}", &message_bytes.len());
             upgrade::write_length_prefixed(&mut socket, message_bytes).await?;
             socket.close().await?;
 

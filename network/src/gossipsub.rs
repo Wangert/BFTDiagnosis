@@ -1,10 +1,5 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    error::Error,
-    hash::{Hash, Hasher},
-    sync::Arc,
-    time::Duration,
-};
+use crate::transport::CMTTransport;
+use chrono::Local;
 use libp2p::{
     gossipsub::{
         Gossipsub, GossipsubConfigBuilder, GossipsubMessage, IdentTopic, MessageAuthenticity,
@@ -13,8 +8,14 @@ use libp2p::{
     identity::Keypair,
     Multiaddr, PeerId, Swarm,
 };
+use std::{
+    collections::hash_map::DefaultHasher,
+    error::Error,
+    hash::{Hash, Hasher},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::Mutex;
-use crate::transport::CMTTransport;
 
 pub struct GossipsubSwarm {
     pub cmt_transport: Box<CMTTransport>,
@@ -47,9 +48,12 @@ impl GossipsubSwarm {
                     vec![]
                 };
 
+                let mut t =  Local::now().to_string().as_bytes().to_vec();
                 let mut data = message.data.clone();
                 msg_hash_vec.append(&mut data);
+                msg_hash_vec.append(&mut t);
                 msg_hash_vec.hash(&mut s);
+
                 MessageId::from(s.finish().to_string())
             };
 
@@ -114,15 +118,4 @@ impl GossipsubSwarm {
 
         Ok(())
     }
-
-    // pub fn send_message(&mut self) {
-    //     let gossipsub_swarm = if let Some(s) = &mut self.swarm {
-    //         s
-    //     } else {
-    //         panic!("【network_peer】: Not build gossipsub swarm")
-    //     };
-
-    //     let g = gossipsub_swarm.behaviour_mut();
-    //     g.report_message_validation_result(msg_id, propagation_source, acceptance)
-    // }
 }

@@ -12,4 +12,5 @@ tokio = { version = "1.17.0", features = ["full"] }
 serde = { version = "1.0.136", features = ["derive"]}
 cuckoofilter = "0.5.0"
 rand = "0.8.5"
+chrono = "0.4.19"
 utils = { path = "../utils" }

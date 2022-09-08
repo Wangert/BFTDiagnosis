@@ -122,7 +122,7 @@ impl Unicast {
         // );
         if self.can_send_peers.contains(recv_peer_id) && self.connected_peers.contains(recv_peer_id)
         {
-            //println!("Send_message ok");
+            // println!("Send_message ok");
             self.events
                 .push_back(NetworkBehaviourAction::NotifyHandler {
                     peer_id: *recv_peer_id,
@@ -231,6 +231,9 @@ impl NetworkBehaviour for Unicast {
                 );
             }
         }
+
+        // println!("==================================================");
+        // println!("{:?}", &event);
 
         self.events.push_back(NetworkBehaviourAction::GenerateEvent(
             UnicastEvent::Message(event),
