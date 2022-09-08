@@ -27,11 +27,23 @@ pub fn print_scalability_results_cmd() -> Command<'static> {
 }
 
 pub fn start_test_cmd() -> Command<'static> {
-    clap::Command::new("test")
-        .about("start_test")
-        .subcommand(pbft_test_cmd())
-        .subcommand(hotstuff_test_cmd())
-        .subcommand(chain_hotstuff_test_cmd())
+    clap::Command::new("startTest")
+        .about("startTest")
+}
+
+pub fn configure_analyzer_cmd() -> Command<'static> {
+    clap::Command::new("configureAnalyzer")
+        .about("configureAnalyzer")
+}
+
+pub fn configure_consensus_node_cmd() -> Command<'static> {
+    clap::Command::new("configureConsensusNode")
+        .about("configureConsensusNode")
+}
+
+pub fn protocol_start_cmd() -> Command<'static> {
+    clap::Command::new("protocolStart")
+        .about("protocolStart")
 }
 
 pub fn pbft_test_cmd() -> Command<'static> {

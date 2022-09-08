@@ -6,3 +6,4 @@ pub fn init_cmd() -> Command<'static> {
         .about("init")
         // .subcommand(get_baidu_cmd())
 }
+

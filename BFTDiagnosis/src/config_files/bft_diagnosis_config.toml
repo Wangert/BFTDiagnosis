@@ -1,6 +1,6 @@
 # Test Option Configuration
 [throughput]
-enable = true
+enable = false
 
 [latency]
 enable = false
@@ -13,7 +13,8 @@ internal = 2
 # Security testing: crash and malicious behaviours
 [crash]
 enable = true
+max = 2
 
 [malicious]
-enable = true
+enable = false
 behaviour = "action1"

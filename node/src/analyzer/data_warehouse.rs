@@ -33,12 +33,14 @@ pub struct DataWarehouse {
     scalability_results: HashMap<u16, HashMap<PeerId, ScalabilityResult>>,
 }
 
+// Latency result
 #[derive(Debug, Clone)]
 pub struct LatencyResult {
     pub request: Request,
     pub latency: u64,
 }
 
+// Scalability result
 #[derive(Debug, Clone)]
 pub struct ScalabilityResult {
     pub throughput: u64,
@@ -312,6 +314,8 @@ impl DataWarehouse {
 
         self.scalability_results.insert(node_count, scalablity_results);
     }
+
+    pub fn test_crash(&mut self) {}
 
     pub fn update_request_count_with_peer(&mut self, peer_id: PeerId) {
         if let Some(&count) = self.throughput_mid_results.get(&peer_id) {

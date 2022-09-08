@@ -1,6 +1,9 @@
 use crate::{
     base_swarm::BaseSwarm,
-    p2p_protocols::{base_behaviour::{OutEvent, BaseBehaviour}, unicast::behaviour::UnicastEvent},
+    p2p_protocols::{
+        base_behaviour::{BaseBehaviour, OutEvent},
+        unicast::behaviour::UnicastEvent,
+    },
 };
 
 use futures::StreamExt;
@@ -29,7 +32,7 @@ impl Peer {
     pub fn new(swarm_addr: Multiaddr) -> Peer {
         // Create a random PeerID
         let keypair = Keypair::generate_ed25519();
-        
+
         let peer_id = PeerId::from(keypair.public());
 
         Peer {
@@ -55,7 +58,7 @@ impl Peer {
     pub async fn swarm_start(&mut self, is_consensus_node: bool) -> Result<(), Box<dyn Error>> {
         self.network
             .build(self.id.clone(), self.keypair.clone(), is_consensus_node)
-            .await?;   
+            .await?;
         self.network.start(self.swarm_addr.clone())?;
 
         Ok(())
@@ -126,84 +129,4 @@ impl Peer {
             }
         }
     }
-
-    // pub async fn mdns_start(&mut self, other_peers: Arc<Mutex<Vec<(Multiaddr, PeerId)>>>) {
-    //     let address = self.mdns_addr.clone();
-    //     let peer_id = &self.id;
-
-    //     let r = self.mdns_swarm.start(address, peer_id, other_peers).await;
-    //     match r {
-    //         Ok(_) => {}
-    //         Err(e) => eprintln!("[mdns_swarm](start failed):{:?}", e),
-    //     }
-    // }
-
-    // pub async fn gossipsub_start(&mut self, other_peers: Arc<Mutex<Vec<(Multiaddr, PeerId)>>>) {
-    //     let address = self.gossipsub_addr.clone();
-    //     let peer_id = &self.id;
-    //     let peer_keys = &self.keys;
-
-    //     let r = self
-    //         .gossipsub_swarm
-    //         .start_listen(address, peer_id, peer_keys, other_peers)
-    //         .await;
-    //     match r {
-    //         Ok(_) => {}
-    //         Err(e) => eprintln!("[gossipsub_swarm](start failed):{:?}", e),
-    //     }
-    // }
-
-    // pub async fn message_handler_start(&mut self, rx: &mut Receiver<String>) {
-    //     let swarm = if let Some(s) = &mut self.gossipsub_swarm.swarm {
-    //         s
-    //     } else {
-    //         panic!("【network_peer】: Not build gossipsub swarm")
-    //     };
-    //     // Kick it off
-    //     loop {
-    //         tokio::select! {
-    //             Some(msg) = rx.recv() => {
-    //                 let topic = IdentTopic::new("consensus");
-    //                 if let Err(e) = swarm.behaviour_mut().publish(topic.clone(), msg) {
-    //                     eprintln!("Publish message error:{:?}", e);
-    //                 }
-    //             },
-    //             event = swarm.select_next_some() => match event {
-    //                 SwarmEvent::Behaviour(GossipsubEvent::Message {
-    //                     propagation_source: peer_id,
-    //                     message_id: id,
-    //                     message,
-    //                 }) => {
-    //                     println!("Got message: {} with id: {} from peer: {:?}", String::from_utf8_lossy(&message.data), id, peer_id);
-    //                 }
-    //                 SwarmEvent::NewListenAddr { address, .. } => {
-    //                     println!("Listening on {:?}", address);
-    //                 }
-    //                 _ => {}
-    //             }
-    //         }
-    //     }
-    // }
-
-    // pub async fn broadcast_message(tx: &Sender<String>, msg: &str) {
-    //     tx.send(msg.to_string()).await.unwrap();
-    // }
-
-    // pub async fn run(&mut self) {
-    //     let keys = self.keys.clone();
-    //     let mut mdns_swarm = MdnsSwarm::new(&keys);
-
-    //     let mdns_addr = self.mdns_addr.clone();
-    //     let peer_id = self.id.clone();
-
-    //     let other_peers: Arc<Mutex<Vec<(Multiaddr, PeerId)>>> = Arc::new(Mutex::new(vec![]));
-    //     let g_peers = Arc::clone(&other_peers);
-
-    //     tokio::spawn(async move {
-    //         let _ = mdns_swarm.start(mdns_addr, &peer_id, other_peers).await;
-    //     });
-
-    //     self.gossipsub_start(g_peers).await;
-    //     //self.message_handler_start(rx).await;
-    // }
 }

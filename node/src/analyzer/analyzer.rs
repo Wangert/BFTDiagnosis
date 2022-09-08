@@ -1,6 +1,6 @@
-use std::{collections::HashMap, error::Error, sync::Arc};
+use std::{collections::HashMap, error::Error, process::exit, sync::Arc, time::Duration};
 
-use cli::{client::Client, cmd::rootcmd::{CMD}};
+use cli::{client::Client, cmd::rootcmd::CMD};
 use libp2p::{
     futures::StreamExt,
     gossipsub::{GossipsubEvent, IdentTopic},
@@ -16,7 +16,12 @@ use network::{
     peer::Peer,
 };
 
-use tokio::{io::{self, AsyncBufReadExt}, sync::Notify, sync::mpsc::{Sender, Receiver, self}};
+use tokio::{
+    io::{self, AsyncBufReadExt},
+    sync::mpsc::{self, Receiver, Sender},
+    sync::Notify,
+    time::{interval, interval_at, Instant},
+};
 use utils::coder::{self, serialize_into_bytes};
 
 use crate::{
@@ -27,7 +32,7 @@ use crate::{
     },
 };
 
-use clap::{Command as clap_Command, ArgMatches};
+use clap::{ArgMatches, Command as clap_Command};
 
 use super::data_warehouse::DataWarehouse;
 
@@ -47,18 +52,27 @@ pub struct Analyzer {
 
     // the test item currently being executed
     current_test_item: Option<TestItem>,
+    performance_test_duration: u64,
+    performance_test_internal: u64,
+    security_test_duration: u64,
     // a data warehouse where protocol running data is stored and analyzed
     data_warehouse: DataWarehouse,
 
     completed_test_notify: Arc<Notify>,
+    internal_notify: Arc<Notify>,
 
-    // client: Client,
+    // client parameter channel,
     args_sender: Sender<Vec<String>>,
     args_recevier: Receiver<Vec<String>>,
 }
 
 impl Analyzer {
-    pub fn new(peer: Peer, port: &str) -> Self {
+    pub fn new(
+        peer: Peer,
+        performance_test_duration: u64,
+        performance_test_internal: u64,
+        security_test_duration: u64,
+    ) -> Self {
         // let db_path = format!("./storage/data/{}_public_keys", port);
         let (args_sender, args_recevier) = mpsc::channel::<Vec<String>>(10);
 
@@ -70,8 +84,12 @@ impl Analyzer {
             controller_id: PeerId::random(),
             other_analyzer_node: Vec::new(),
             current_test_item: None,
+            performance_test_duration,
+            performance_test_internal,
+            security_test_duration,
             data_warehouse: DataWarehouse::new(),
             completed_test_notify: Arc::new(Notify::new()),
+            internal_notify: Arc::new(Notify::new()),
 
             // client: Client::new(matches),
             args_sender,
@@ -79,6 +97,7 @@ impl Analyzer {
         }
     }
 
+    // Analyzer network startup, including peer start, gossip topic subscription, message handler
     pub async fn peer_start(&mut self) -> Result<(), Box<dyn Error>> {
         self.peer_mut().swarm_start(false).await?;
 
@@ -90,6 +109,7 @@ impl Analyzer {
         Ok(())
     }
 
+    // subscribe gossip topics
     pub fn subscribe_topics(&mut self) {
         let topic = IdentTopic::new("Initialization");
         if let Err(e) = self
@@ -103,56 +123,129 @@ impl Analyzer {
         };
     }
 
+    // get analyzer peer id
     pub fn id(&self) -> PeerId {
         self.id.clone()
     }
 
+    // get analyzer peer id bytes
     pub fn id_bytes(&self) -> Vec<u8> {
         self.id.to_bytes()
     }
 
+    // get mutable peer
     pub fn peer_mut(&mut self) -> &mut Peer {
         &mut self.peer
     }
 
+    // get controller peer id
     pub fn controller_id(&self) -> PeerId {
         self.controller_id.clone()
     }
 
-    // pub fn client(&self) -> Client {
-    //     self.client.clone()
-    // }
-
+    // get client arguments sender
     pub fn args_sender(&self) -> Sender<Vec<String>> {
         self.args_sender.clone()
     }
 
+    // add controller id
     pub fn add_controller(&mut self, controller_id: PeerId) {
         self.controller_id = controller_id;
     }
 
+    // set the test item
     pub fn set_test_item(&mut self, test_item: TestItem) {
         self.current_test_item = Some(test_item);
     }
 
+    pub fn clear_test_item(&mut self) {
+        self.current_test_item = None;
+    }
+
+    // get current test item
     pub fn current_test_item(&self) -> Option<TestItem> {
         self.current_test_item.clone()
     }
 
-    pub fn data_warehouse(&mut self) -> &mut DataWarehouse {
+    // get mutable data warehouse
+    pub fn data_warehouse_mut(&mut self) -> &mut DataWarehouse {
         &mut self.data_warehouse
     }
 
+    // get completed test notify
     pub fn completed_test_notify(&self) -> Arc<Notify> {
         self.completed_test_notify.clone()
     }
 
+    // get internal test notify
+    pub fn internal_notify(&self) -> Arc<Notify> {
+        self.internal_notify.clone()
+    }
+
+    pub async fn performance_test_timer_start(&self) {
+        println!("\nPerformance test timer start...");
+        println!(
+            "{}, {}",
+            &self.performance_test_duration, &self.performance_test_internal
+        );
+        let duration = Duration::from_millis(self.performance_test_duration);
+        let internal = Duration::from_millis(self.performance_test_internal);
+        // println!("Current view timeout: {}", self.state.current_view_timeout);
+        let internal_notify = self.internal_notify();
+        let completed_test_notify = self.completed_test_notify();
+        let timer_stop = Arc::new(Notify::new());
+        let timer_stop_clone = timer_stop.clone();
+
+        tokio::spawn(async move {
+            let start = Instant::now();
+            let mut intv = interval_at(start, internal);
+
+            loop {
+                tokio::select! {
+                    _ = intv.tick() => {
+                        internal_notify.notify_one();
+                    }
+                    _ = timer_stop.notified() => {
+                        break;
+                    }
+                }
+            }
+        });
+
+        tokio::spawn(async move {
+            let start = Instant::now() + duration;
+            let mut intv = interval_at(start, duration);
+
+            intv.tick().await;
+            completed_test_notify.notify_one();
+            timer_stop_clone.notify_one();
+        });
+    }
+
+    pub async fn crash_test_timer_start(&self) {
+        println!("\nCrash test timer start...");
+        println!("{}", &self.security_test_duration);
+        let duration = Duration::from_millis(self.security_test_duration);
+        // println!("Current view timeout: {}", self.state.current_view_timeout);
+        let completed_test_notify = self.completed_test_notify();
+
+        tokio::spawn(async move {
+            let start = Instant::now() + duration;
+            let mut intv = interval_at(start, duration);
+
+            intv.tick().await;
+            completed_test_notify.notify_one();
+        });
+    }
+
+    // analyzer initialize function
     pub fn init(&mut self) {
         let id_bytes = self.id_bytes();
         let component = Component::Analyzer(id_bytes);
         let interactive_message = InteractiveMessage::ComponentInfo(component);
         let message = Message {
             interactive_message,
+            source: self.id_bytes().clone()
         };
 
         let serialized_message = coder::serialize_into_bytes(&message);
@@ -168,9 +261,11 @@ impl Analyzer {
         }
     }
 
-    pub fn start_test(&mut self) {
+    // When a test start command is received from the controller,
+    // the analyzer acts on the current test item
+    pub fn compute_and_analyse(&mut self) {
         if let Some(test_item) = self.current_test_item() {
-            let data_warehouse = self.data_warehouse();
+            let data_warehouse = self.data_warehouse_mut();
             match test_item {
                 TestItem::Throughput => {
                     data_warehouse.compute_throughput();
@@ -185,7 +280,9 @@ impl Analyzer {
                 TestItem::Scalability(count, max, _) => {
                     data_warehouse.compute_scalability(count);
                 }
-                TestItem::Crash(_) => {}
+                TestItem::Crash(_, _) => {
+                    data_warehouse.test_crash();
+                }
                 TestItem::Malicious(_) => {}
             }
         } else {
@@ -193,11 +290,14 @@ impl Analyzer {
         };
     }
 
+    // When the analyzer determines that the current round of testing has been completed,
+    // it notifies the controller to proceed with the next test
     pub fn next_test(&mut self) {
         let current_test_item = self.current_test_item().unwrap();
-
+        self.clear_test_item();
         let message = Message {
             interactive_message: InteractiveMessage::CompletedTest(current_test_item),
+            source: self.id_bytes().clone(),
         };
         let serialized_message = coder::serialize_into_bytes(&message);
         let controller_id = self.controller_id();
@@ -208,7 +308,8 @@ impl Analyzer {
             .send_message(&controller_id, serialized_message);
     }
 
-    pub fn controller_message_handler(&mut self, message: Message) {
+    // A function that processes messages from the controller
+    pub async fn controller_message_handler(&mut self, message: Message) {
         match message.interactive_message {
             InteractiveMessage::ComponentInfo(Component::Controller(id_bytes)) => {
                 let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
@@ -217,16 +318,33 @@ impl Analyzer {
             }
             InteractiveMessage::ComponentInfo(Component::Analyzer(id_bytes)) => {}
             InteractiveMessage::TestItem(item) => {
+                println!("Configure test item: {:?}", &item);
                 self.set_test_item(item);
-                self.data_warehouse().reset();
+                self.data_warehouse_mut().reset();
             }
-            InteractiveMessage::StartTest => {
-                self.start_test();
+            InteractiveMessage::StartTest(_) => {
+                println!("StartTest");
+                if let Some(test_item) = self.current_test_item() {
+                    match test_item {
+                        TestItem::Throughput
+                        | TestItem::Latency
+                        | TestItem::ThroughputAndLatency
+                        | TestItem::Scalability(_, _, _) => {
+                            self.performance_test_timer_start().await;
+                        }
+                        TestItem::Crash(_, _) => {
+                            self.crash_test_timer_start().await;
+                        }
+                        TestItem::Malicious(_) => {}
+                    }
+                    self.compute_and_analyse();
+                }
             }
             _ => {}
         };
     }
 
+    // A function that processes messages from the consensus node
     pub fn consensus_node_message_handler(
         &mut self,
         origin_peer_id: &PeerId,
@@ -254,7 +372,8 @@ impl Analyzer {
         };
     }
 
-    pub fn run_from(&mut self, args: Vec<String>) {
+    // Process client commands before matching
+    pub fn before_cmd_match(&mut self, args: Vec<String>) {
         match clap_Command::try_get_matches_from(CMD.to_owned(), args.clone()) {
             Ok(matches) => {
                 self.cmd_match(&matches);
@@ -265,80 +384,74 @@ impl Analyzer {
         };
     }
 
+    // Match the client command
     pub fn cmd_match(&mut self, matches: &ArgMatches) {
         // let matches = self.client().arg_matches();
 
-
-        if let Some(ref matches) = matches.subcommand_matches("init") {
+        if let Some(_) = matches.subcommand_matches("init") {
             println!("BFT测试平台初始化成功！");
             self.init();
         }
 
-        if let Some(ref matches) = matches.subcommand_matches("printThroughputResults") {
-            self.data_warehouse().print_throughput_results();
+        if let Some(_) = matches.subcommand_matches("printThroughputResults") {
+            self.data_warehouse_mut().print_throughput_results();
         }
 
-        if let Some(ref matches) = matches.subcommand_matches("printLatencyResults") {
-            self.data_warehouse().print_latency_results();
+        if let Some(_) = matches.subcommand_matches("printLatencyResults") {
+            self.data_warehouse_mut().print_latency_results();
         }
 
-        if let Some(ref matches) = matches.subcommand_matches("printScalabilityResults") {
-            self.data_warehouse().print_scalability_results();
+        if let Some(_) = matches.subcommand_matches("printScalabilityResults") {
+            self.data_warehouse_mut().print_scalability_results();
         }
 
-        if let Some(ref matches) = matches.subcommand_matches("test") {
-            if let Some(_) = matches.subcommand_matches("pbft") {
-                println!("开始进行PBFT共识协议的测试");
-            };
+        // if let Some(ref matches) = matches.subcommand_matches("test") {
+        //     if let Some(_) = matches.subcommand_matches("pbft") {
+        //         println!("开始进行PBFT共识协议的测试");
+        //     };
 
-            if let Some(_) = matches.subcommand_matches("hotstuff") {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                let async_req = async { println!("开始进行hotstuff共识协议的测试") };
-                rt.block_on(async_req);
-            };
+        //     if let Some(_) = matches.subcommand_matches("hotstuff") {
+        //         let rt = tokio::runtime::Runtime::new().unwrap();
+        //         let async_req = async { println!("开始进行hotstuff共识协议的测试") };
+        //         rt.block_on(async_req);
+        //     };
 
-            if let Some(_) = matches.subcommand_matches("chain_hotstuff") {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                let async_req =
-                    async { println!("开始进行chain_hotstuff共识协议的测试") };
-                rt.block_on(async_req);
-            };
-        }
+        //     if let Some(_) = matches.subcommand_matches("chain_hotstuff") {
+        //         let rt = tokio::runtime::Runtime::new().unwrap();
+        //         let async_req =
+        //             async { println!("开始进行chain_hotstuff共识协议的测试") };
+        //         rt.block_on(async_req);
+        //     };
+        // }
     }
 
+    // Function launched by the Message handler
     pub async fn message_handler_start(&mut self) {
         // let mut stdin = io::BufReader::new(io::stdin()).lines();
 
         let completed_test_notify = self.completed_test_notify();
+        let internal_notify = self.internal_notify();
+
         loop {
             tokio::select! {
                 Some(args) = self.args_recevier.recv() => {
-                    self.run_from(args);
+                    self.before_cmd_match(args);
                 },
-                // line = stdin.next_line() => {
-                //     if let Ok(Some(command)) = line {
-                //         println!("{}", command);
-                //         let count = command.parse::<usize>().ok();
-                //         match count {
-                //             None => match &command as &str {
-                //                 "Init" => {
-                //                     self.init();
-                //                 }
-                //                 _ => {}
-                //             },
-                //             _ => {}
-                //         }
-                //     }
-                // },
+                _ = internal_notify.notified() => {
+                    println!("Internal");
+                    self.compute_and_analyse();
+                }
                 _ = completed_test_notify.notified() => {
+                    println!("Completed");
                     self.next_test();
                 },
                 event = self.peer.network_swarm_mut().select_next_some() => match event {
                     SwarmEvent::Behaviour(OutEvent::Unicast(UnicastEvent::Message(message))) => {
                         let peer_id = PeerId::from_bytes(&message.source[..]).unwrap();
                         if self.controller_id().to_string().eq(&peer_id.to_string()) {
+                            println!("");
                             let message: Message = coder::deserialize_for_bytes(&message.data);
-                            self.controller_message_handler(message);
+                            self.controller_message_handler(message).await;
                         } else if self.connected_nodes.contains_key(&peer_id.to_string()) {
                             let consensus_data_message: ConsensusDataMessage = coder::deserialize_for_bytes(&message.data);
                             self.consensus_node_message_handler(&peer_id, consensus_data_message);

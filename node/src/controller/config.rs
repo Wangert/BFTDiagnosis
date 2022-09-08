@@ -30,6 +30,7 @@ pub struct Scalability {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Crash {
     pub enable: Option<bool>,
+    pub max: Option<u16>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

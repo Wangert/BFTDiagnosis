@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, hash::Hash, sync::Arc};
+use std::{collections::HashMap, error::Error, hash::Hash, sync::Arc, time::Duration};
 
 use crate::{
     behaviour::{
@@ -8,12 +8,12 @@ use crate::{
     common::get_request_hash,
     config::ExtraInfo,
     message::{
-        Command, CommandMessage, ConsensusData, ConsensusDataMessage, ConsensusEndData,
-        ConsensusStartData, InteractiveMessage, MaliciousAction, Message, Request, Component,
+        Command, CommandMessage, Component, ConsensusData, ConsensusDataMessage, ConsensusEndData,
+        ConsensusStartData, InteractiveMessage, MaliciousAction, Message, Request,
     },
 };
 
-use chrono::Local;
+use chrono::{Local};
 use libp2p::{
     futures::StreamExt,
     gossipsub::{GossipsubEvent, IdentTopic},
@@ -26,7 +26,8 @@ use network::{
     peer::Peer,
 };
 
-use tokio::sync::Notify;
+use serde::{Serialize, Deserialize};
+use tokio::{sync::Notify, time::{Instant, interval_at}};
 use utils::coder::{self};
 
 pub struct ConsensusNode<TLog, TState>
@@ -46,6 +47,7 @@ where
     consensus_notify: Arc<Notify>,
     view_timeout_notify: Arc<Notify>,
     protocol_stop_notify: Arc<Notify>,
+    crash_notify: Arc<Notify>,
 
     // diagnostic indicators
     diagnostic_indicators: Vec<Command>,
@@ -71,6 +73,7 @@ where
             consensus_notify: Arc::new(Notify::new()),
             view_timeout_notify: Arc::new(Notify::new()),
             protocol_stop_notify: Arc::new(Notify::new()),
+            crash_notify: Arc::new(Notify::new()),
 
             diagnostic_indicators: Vec::new(),
             mode: ConsensusNodeMode::Uninitialized,
@@ -80,11 +83,36 @@ where
     pub async fn network_start(&mut self) -> Result<(), Box<dyn Error>> {
         self.peer_mut().swarm_start(true).await?;
 
+        self.subscribe_topics();
         self.protocol_start_listening().await;
         // self.executor.proposal_state_check();
         // self.message_handler_start().await;
-
         Ok(())
+    }
+
+    // subscribe gossip topics
+    pub fn subscribe_topics(&mut self) {
+        let topic_1 = IdentTopic::new("Initialization");
+        if let Err(e) = self
+            .peer_mut()
+            .network_swarm_mut()
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&topic_1)
+        {
+            eprintln!("Subscribe error:{:?}", e);
+        };
+
+        let topic_2 = IdentTopic::new("Reset");
+        if let Err(e) = self
+            .peer_mut()
+            .network_swarm_mut()
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&topic_2)
+        {
+            eprintln!("Subscribe error:{:?}", e);
+        };
     }
 
     pub fn peer_mut(&mut self) -> &mut Peer {
@@ -133,6 +161,14 @@ where
         self.analyzer_id.expect("Not found analyzer")
     }
 
+    pub fn mode(&self) -> ConsensusNodeMode {
+        self.mode.clone()
+    }
+
+    pub fn crash_notify(&self) -> Arc<Notify> {
+        self.crash_notify.clone()
+    }
+
     pub fn add_controller(&mut self, controller_id: PeerId) {
         self.controller_id = Some(controller_id);
     }
@@ -152,14 +188,59 @@ where
         matches!(self.controller_id, Some(_)) && matches!(self.analyzer_id, Some(_))
     }
 
+    pub fn set_mode(&mut self, mode: ConsensusNodeMode) {
+        self.mode = mode;
+    }
+
+    pub fn protocol_start_preprocess(&mut self) {
+        let mode = self.mode();
+        match mode {
+            ConsensusNodeMode::Uninitialized => {},
+            ConsensusNodeMode::Honest => todo!(),
+            ConsensusNodeMode::Dishonest(_) => todo!(),
+            ConsensusNodeMode::Crash(internal) => {
+                self.crash_timer_start(internal);
+            },
+        }
+    }
+
     pub fn reset(&mut self) {
         self.request_buffer.clear();
     }
 
+    pub fn crash_timer_start(&mut self, internal: u64) {
+        println!("\nCrash timer start...");
+        let duration = Duration::from_millis(internal);
+        // println!("Current view timeout: {}", self.state.current_view_timeout);
+        let crash_notify = self.crash_notify();
+
+        tokio::spawn(async move {
+            let start = Instant::now() + duration;
+            let mut intv = interval_at(start, duration);
+
+            intv.tick().await;
+            crash_notify.notify_one();
+        });
+    }
+
     // The consensus's handler on the controller message
-    pub fn controller_message_handler(&mut self, message: Message) {
+    pub fn running_controller_message_handler(&mut self, message: Message) {
         match message.interactive_message {
-            InteractiveMessage::SubscribeConsensusTopic => {
+            InteractiveMessage::Reset(_) => {
+                println!("Reset!!!");
+                if self.verify_initialization() {
+                    self.protocol_stop_notify().notify_one();
+                } else {
+                    eprintln!("Not found initialization!");
+                };
+            }
+            _ => {}
+        };
+    }
+
+    pub async fn no_running_controller_message_handler(&mut self, message: Message) {
+        match message.interactive_message {
+            InteractiveMessage::SubscribeConsensusTopic(_) => {
                 let topic = IdentTopic::new("Consensus");
                 if let Err(e) = self
                     .peer_mut()
@@ -174,6 +255,30 @@ where
                 let interactive_message = InteractiveMessage::SubscribeConsensusTopicSuccess;
                 let message = Message {
                     interactive_message,
+                    source: vec![],
+                };
+
+                let controller_id = self.controller_id();
+                let serialized_message = coder::serialize_into_bytes(&message);
+                self.peer_mut()
+                    .network_swarm_mut()
+                    .behaviour_mut()
+                    .unicast
+                    .send_message(&controller_id, serialized_message);
+            }
+            InteractiveMessage::ProtocolStart(_) => {
+                println!("Protocol Start!!!");
+                self.verify_initialization();
+                self.message_handler_start().await;
+            }
+            InteractiveMessage::ConsensusNodeMode(mode) => {
+                self.set_mode(mode);
+                println!("Set mode success: {:?}", self.mode());
+
+                let interactive_message = InteractiveMessage::ConsensusNodeModeSuccess;
+                let message = Message {
+                    interactive_message,
+                    source: vec![],
                 };
 
                 let controller_id = self.controller_id();
@@ -193,11 +298,15 @@ where
             tokio::select! {
                     event = self.peer_mut().network_swarm_mut().select_next_some() => match event {
                         SwarmEvent::Behaviour(OutEvent::Unicast(UnicastEvent::Message(message))) => {
-                            // println!("tblskey.");
-                            // self.consensus_protocol_message_handler(&message.data);
+                            println!("Controller unicast!");
+                            let peer_id = PeerId::from_bytes(&message.source[..]).unwrap();
+                            if peer_id.to_string().eq(&self.controller_id().to_string()) {
+                                let message: Message = coder::deserialize_for_bytes(&message.data);
+                                self.no_running_controller_message_handler(message).await;
+                            };
                         }
                         SwarmEvent::Behaviour(OutEvent::Gossipsub(GossipsubEvent::Message {
-                            propagation_source: peer_id,
+                            propagation_source: _peer_id,
                             message_id: _id,
                             message,
                         })) => {
@@ -210,16 +319,8 @@ where
                                 }
                                 InteractiveMessage::ComponentInfo(Component::Analyzer(id_bytes)) => {
                                     let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
-                                    println!("Controller PeerId: {:?}", controller_id.to_string());
+                                    println!("Analyzer PeerId: {:?}", controller_id.to_string());
                                     self.add_analyzer(controller_id);
-                                }
-                                InteractiveMessage::ProtocolStart => {
-                                    self.verify_initialization();
-                                    self.message_handler_start().await;
-                                }
-                                InteractiveMessage::Reset => {
-                                    self.verify_initialization();
-                                    self.protocol_stop_notify().notify_one();
                                 }
                                 _ => {}
                             }
@@ -257,11 +358,25 @@ where
         let consensus_notify = self.consensus_notify();
         let view_timeout_notify = self.view_timeout_notify();
         let protocol_stop_notify = self.protocol_stop_notify();
+        let crash_notify = self.crash_notify();
 
+        self.protocol_start_preprocess();
         // Kick it off
         loop {
             tokio::select! {
                 _ = protocol_stop_notify.notified() => {
+                    self.reset();
+                    println!("Reset completed!!!");
+                    break;
+                }
+                _ = crash_notify.notified() => {
+                    let topic = IdentTopic::new("Consensus");
+                    if let Err(e) = self.peer_mut().network_swarm_mut().behaviour_mut().gossipsub.unsubscribe(&topic) {
+                        eprintln!("Unsubscribe consensus topic error:{:?}", e);
+                    };
+
+                    println!("Crash!!!!!!!!!!");
+
                     self.reset();
                     break;
                 }
@@ -292,30 +407,24 @@ where
                 event = self.peer_mut().network_swarm_mut().select_next_some() => match event {
                     SwarmEvent::Behaviour(OutEvent::Unicast(UnicastEvent::Message(message))) => {
                         // println!("tblskey.");
-                        self.consensus_protocol_message_handler(&message.data);
+                        let peer_id = PeerId::from_bytes(&message.source[..]).unwrap();
+                        if peer_id.to_string().eq(&self.controller_id().to_string()) {
+                            let message: Message = coder::deserialize_for_bytes(&message.data);
+                            self.running_controller_message_handler(message);
+                        } else {
+                            self.consensus_protocol_message_handler(&message.data);
+                        }; 
                     }
                     SwarmEvent::Behaviour(OutEvent::Gossipsub(GossipsubEvent::Message {
-                        propagation_source: peer_id,
+                        propagation_source: _peer_id,
                         message_id: _id,
                         message,
                     })) => {
-                        if peer_id.to_string().eq(&self.controller_id().to_string()) {
-                            let message: Message = coder::deserialize_for_bytes(&message.data);
-                            self.controller_message_handler(message);
-                            // let msg: CommandMessage = coder::deserialize_for_bytes(&message.data);
-                            // match msg.command {
-                            //     Command::MakeConsensusRequests(requests) => {
-                            //         self.write_requests_into_buffer(requests);
-                            //     }
-                            //     _ => {}
-                            // }
-                        } else {
-                            let is_end = self.consensus_protocol_message_handler(&message.data);
-                            if let ConsensusEnd::Yes(request) = is_end {
-                                let consensus_end_data = ConsensusEndData { request, completed_time: Local::now().timestamp_millis() };
-                                let data = ConsensusData::ConsensusEndData(consensus_end_data);
-                                self.push_consensus_data_to_analysis_node(&data);
-                            }
+                        let is_end = self.consensus_protocol_message_handler(&message.data);
+                        if let ConsensusEnd::Yes(request) = is_end {
+                            let consensus_end_data = ConsensusEndData { request, completed_time: Local::now().timestamp_millis() };
+                            let data = ConsensusData::ConsensusEndData(consensus_end_data);
+                            self.push_consensus_data_to_analysis_node(&data);
                         }
                     }
                     // SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
@@ -341,16 +450,19 @@ where
                     // SwarmEvent::NewListenAddr { address, .. } => {
                     //     println!("Listening on {:?}", address);
                     // }
-                    _ => {}
+                    _ => {
+                        println!("Default!");
+                    }
                 }
             }
         }
     }
 }
 
-enum ConsensusNodeMode {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum ConsensusNodeMode {
     Uninitialized,
     Honest,
     Dishonest(MaliciousAction),
-    Outage(usize),
+    Crash(u64),
 }

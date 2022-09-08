@@ -1,3 +1,8 @@
 [network]
-ip_addr = "10.162.187.114"
+ip_addr = "10.162.133.227"
 ip_port = 11116
+
+[execution]
+performance_duration = 10000
+performance_internal = 1000
+crash_duration = 10000

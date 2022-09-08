@@ -48,12 +48,20 @@ pub struct ControllerConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct AnalyzerConfig {
     pub network: Option<Network>,
+    pub execution: Option<Execution>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Network {
     pub ip_addr: Option<String>,
     pub ip_port: Option<u16>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Execution {
+    pub performance_duration: Option<u64>,
+    pub performance_internal: Option<u64>,
+    pub crash_duration: Option<u64>,
 }
 
 pub fn read_controller_config() -> ControllerConfig {

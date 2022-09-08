@@ -5,6 +5,7 @@ use std::{
     time::Duration,
 };
 
+use chrono::Local;
 use libp2p::{
     gossipsub::{
         Gossipsub, GossipsubConfigBuilder, GossipsubMessage, IdentTopic, MessageAuthenticity,
@@ -20,7 +21,6 @@ use crate::{
     transport::create_base_transport,
 };
 
-
 // mdns + unicast + gossipsub swarm
 pub struct BaseSwarm {
     pub swarm: Option<Swarm<BaseBehaviour>>,
@@ -32,7 +32,7 @@ impl BaseSwarm {
     }
 
     // build swarm
-    pub async fn   build(
+    pub async fn build(
         &mut self,
         peer_id: PeerId,
         keypair: Keypair,
@@ -53,8 +53,10 @@ impl BaseSwarm {
                 vec![]
             };
 
+            // let mut t = Local::now().to_string().as_bytes().to_vec();
             let mut data = message.data.clone();
             msg_hash_vec.append(&mut data);
+            // msg_hash_vec.append(&mut t);
             msg_hash_vec.hash(&mut s);
             MessageId::from(s.finish().to_string())
         };
@@ -78,22 +80,6 @@ impl BaseSwarm {
             gossipsub_config,
         )
         .expect("Gossipsub correct configuration");
-
-        // if is_consensus_node == true {
-        //     let topic1 = IdentTopic::new("Consensus");
-        //     gossipsub.subscribe(&topic1).unwrap();
-        //     let topic2 = IdentTopic::new("DistributePK");
-        //     gossipsub.subscribe(&topic2).unwrap();
-        //     let topic3 = IdentTopic::new("Initialization");
-        //     gossipsub.subscribe(&topic3).unwrap();
-        // } else {
-        //     let topic1 = IdentTopic::new("ControllerAndAnalyzer");
-        //     gossipsub.subscribe(&topic1).unwrap();
-        //     let topic2 = IdentTopic::new("DistributePK");
-        //     gossipsub.subscribe(&topic2).unwrap();
-        //     let topic3 = IdentTopic::new("Initialization");
-        //     gossipsub.subscribe(&topic3).unwrap();
-        // }
 
         // create mdns
         let mdns = Mdns::new(MdnsConfig::default()).await?;
