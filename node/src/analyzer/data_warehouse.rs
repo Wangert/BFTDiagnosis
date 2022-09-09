@@ -24,6 +24,9 @@ pub struct DataWarehouse {
     l_start_data_computing: HashMap<(PeerId, String), ConsensusStartData>,
     l_end_data_computing: HashMap<(PeerId, String), ConsensusEndData>,
 
+    c_start_data: HashMap<(PeerId, String), ConsensusStartData>,
+    c_end_data: HashMap<(PeerId, String), ConsensusEndData>,
+
     throughput_mid_results: HashMap<PeerId, u64>,
     throughput_results: HashMap<PeerId, u64>,
     latency_results: HashMap<PeerId, Vec<LatencyResult>>,
@@ -31,6 +34,9 @@ pub struct DataWarehouse {
     scalability_mid_throughputs: HashMap<PeerId, u64>,
     scalability_mid_latencies: HashMap<PeerId, Vec<LatencyResult>>,
     scalability_results: HashMap<u16, HashMap<PeerId, ScalabilityResult>>,
+
+    crash_nodes: HashMap<u16, Vec<PeerId>>,
+    crash_results: HashMap<u16, HashMap<PeerId, Vec<CrashResult>>>
 }
 
 // Latency result
@@ -47,6 +53,13 @@ pub struct ScalabilityResult {
     pub latency_results: Vec<LatencyResult>,
 }
 
+// Crash result
+#[derive(Debug, Clone)]
+pub struct CrashResult {
+    pub request_cmd: String,
+    pub timestamp: u64,
+}
+
 impl DataWarehouse {
     pub fn new() -> Self {
         Self {
@@ -59,12 +72,16 @@ impl DataWarehouse {
             l_end_data: HashMap::new(),
             l_start_data_computing: HashMap::new(),
             l_end_data_computing: HashMap::new(),
+            c_start_data: HashMap::new(),
+            c_end_data: HashMap::new(),
             throughput_mid_results: HashMap::new(),
             throughput_results: HashMap::new(),
             latency_results: HashMap::new(),
             scalability_mid_throughputs: HashMap::new(),
             scalability_mid_latencies: HashMap::new(),
             scalability_results: HashMap::new(),
+            crash_nodes: HashMap::new(),
+            crash_results: HashMap::new(),
         }
     }
 
@@ -94,6 +111,18 @@ impl DataWarehouse {
             }
         }
 
+    }
+
+    pub fn record_crash_node(&mut self, count: u16, peer_id: PeerId) {
+        if 0 != self.crash_nodes.len() {
+            let (_, last_one) = self.crash_nodes.iter().last().unwrap();
+            let mut new_vec = last_one.clone();
+            new_vec.push(peer_id);
+
+            self.crash_nodes.insert(count, new_vec);
+        } else {
+            self.crash_nodes.insert(count, vec![peer_id]);
+        }
     }
 
     pub fn set_test_start_time(&mut self, start_time: i64) {
@@ -315,7 +344,62 @@ impl DataWarehouse {
         self.scalability_results.insert(node_count, scalablity_results);
     }
 
-    pub fn test_crash(&mut self) {}
+    pub fn test_crash(&mut self, crash_count: u16) {
+        let mut crash_results = self.crash_results(crash_count);
+
+        let data = self.c_start_data.clone();
+        data.iter().for_each(|(k, start_data)| {
+            if let Some(end_data) = self.c_end_data.get(k) {
+                let crash_result = CrashResult {
+                    request_cmd: end_data.request.cmd.clone(),
+                    timestamp: end_data.completed_time as u64,
+                };
+                DataWarehouse::store_crash_result(&mut crash_results, &k.0, crash_result);
+                self.c_start_data.remove(k);
+                self.c_end_data.remove(k);
+            } else {
+                let crash_result = CrashResult {
+                    request_cmd: start_data.request.cmd.clone(),
+                    timestamp: 0,
+                };
+                DataWarehouse::store_crash_result(&mut crash_results, &k.0, crash_result);
+                self.c_start_data.remove(k);
+            };
+        });
+
+        let c_end_data_clone = self.c_end_data.clone();
+        let c_end_data_clone_iter = c_end_data_clone.iter();
+        let c_end_data = &mut self.c_end_data;
+        c_end_data_clone_iter.for_each(|(k, v)| {
+            let crash_result = CrashResult {
+                request_cmd: v.request.cmd.clone(),
+                timestamp: v.completed_time as u64,
+            };
+            DataWarehouse::store_crash_result(&mut crash_results, &k.0, crash_result);
+            c_end_data.remove(k);
+        });
+
+        self.crash_results.insert(crash_count, crash_results);
+    }
+
+    pub fn crash_results(&mut self, crash_count: u16) -> HashMap<PeerId, Vec<CrashResult>> {
+        if let Some(crash_resuls) = self.crash_results.get(&crash_count) {
+            crash_resuls.clone()
+        } else {
+            let crash_results: HashMap<PeerId, Vec<CrashResult>> = HashMap::new();
+            self.crash_results.insert(crash_count, crash_results);
+            self.crash_results.get(&crash_count).unwrap().clone()
+        }
+    }
+
+    pub fn store_crash_result(crash_results: &mut HashMap<PeerId, Vec<CrashResult>>, peer_id: &PeerId, crash_result: CrashResult) {
+        if let Some(crash_result_vec) = crash_results.get_mut(&peer_id) {
+            crash_result_vec.push(crash_result);
+        } else {
+            let new_vec = vec![crash_result];
+            crash_results.insert(*peer_id, new_vec);
+        }
+    }
 
     pub fn update_request_count_with_peer(&mut self, peer_id: PeerId) {
         if let Some(&count) = self.throughput_mid_results.get(&peer_id) {
@@ -342,7 +426,6 @@ impl DataWarehouse {
             self.scalability_mid_latencies.insert(peer_id, new_vec);
         }
     }
-
     pub fn reset(&mut self) {
         self.t_start_data.clear();
         self.t_end_data.clear();

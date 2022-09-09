@@ -47,14 +47,17 @@ pub enum InteractiveMessage {
     // test item has completed the interaction of the test
     CompletedTest(TestItem),
 
+    CrashNode(u16, Vec<u8>),
+
     SubscribeConsensusTopic(u64),
     SubscribeConsensusTopicSuccess,
 
     ConsensusNodeMode(ConsensusNodeMode),
-    ConsensusNodeModeSuccess,
+    ConsensusNodeModeSuccess(ConsensusNodeMode),
 
     ProtocolStart(u64),
     Reset(u64),
+    ResetSuccess(ConsensusNodeMode),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

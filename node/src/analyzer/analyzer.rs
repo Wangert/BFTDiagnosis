@@ -280,8 +280,8 @@ impl Analyzer {
                 TestItem::Scalability(count, max, _) => {
                     data_warehouse.compute_scalability(count);
                 }
-                TestItem::Crash(_, _) => {
-                    data_warehouse.test_crash();
+                TestItem::Crash(count, _) => {
+                    data_warehouse.test_crash(count);
                 }
                 TestItem::Malicious(_) => {}
             }
@@ -321,6 +321,10 @@ impl Analyzer {
                 println!("Configure test item: {:?}", &item);
                 self.set_test_item(item);
                 self.data_warehouse_mut().reset();
+            }
+            InteractiveMessage::CrashNode(count, peer_id_bytes) => {
+                let peer_id = PeerId::from_bytes(&peer_id_bytes[..]).unwrap();
+                self.data_warehouse_mut().record_crash_node(count, peer_id);
             }
             InteractiveMessage::StartTest(_) => {
                 println!("StartTest");
@@ -442,6 +446,7 @@ impl Analyzer {
                     self.compute_and_analyse();
                 }
                 _ = completed_test_notify.notified() => {
+                    self.compute_and_analyse();
                     println!("Completed");
                     self.next_test();
                 },

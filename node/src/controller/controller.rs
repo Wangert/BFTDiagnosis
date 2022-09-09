@@ -59,13 +59,21 @@ pub struct Controller {
 
     consensus_node_mode_state: HashMap<PeerId, bool>,
 
+    not_crash_consensus_nodes: HashSet<PeerId>,
+    crash_consensus_nodes: HashSet<PeerId>,
     optional_crash_consensus_nodes: HashSet<PeerId>,
 
     analyzer_id: PeerId,
     test_items: Vec<TestItem>,
 
+    next_test_item: Option<TestItem>,
+    next_mid_test_item: Option<TestItem>,
+
     next_test_flag: bool,
     feedback_crash_node: PeerId,
+
+    reset_success_count: u16,
+    crash_reset_success_count: u16,
 
     client: Client,
     args_sender: Sender<Vec<String>>,
@@ -90,13 +98,21 @@ impl Controller {
 
             consensus_node_mode_state: HashMap::new(),
 
+            not_crash_consensus_nodes: HashSet::new(),
+            crash_consensus_nodes: HashSet::new(),
             optional_crash_consensus_nodes: HashSet::new(),
 
             analyzer_id: PeerId::random(),
             test_items: Vec::new(),
 
+            next_test_item: None,
+            next_mid_test_item: None,
+
             next_test_flag: true,
             feedback_crash_node: PeerId::random(),
+
+            reset_success_count: 0,
+            crash_reset_success_count: 0,
 
             client: Client::new(matches),
             args_sender,
@@ -222,6 +238,14 @@ impl Controller {
 
     pub fn consensus_nodes_set(&mut self) -> &mut HashSet<PeerId> {
         &mut self.consensus_nodes
+    }
+
+    pub fn not_crash_consensus_nodes_set(&mut self) -> &mut HashSet<PeerId> {
+        &mut self.not_crash_consensus_nodes
+    }
+
+    pub fn crash_consensus_nodes_set(&mut self) -> &mut HashSet<PeerId> {
+        &mut self.crash_consensus_nodes
     }
 
     pub fn consensus_node_mode_state(&mut self) -> &mut HashMap<PeerId, bool> {
@@ -389,19 +413,20 @@ impl Controller {
 
             true
         } else {
+            println!("Protocol Test Completed!!!");
             false
         }
     }
 
     pub fn configure_consensus_node(&mut self) {
-        let message = Message {
+        let mut message = Message {
             interactive_message: InteractiveMessage::SubscribeConsensusTopic(
                 Local::now().timestamp_millis() as u64,
             ),
             source: self.id_bytes().clone(),
         };
 
-        let serialized_message = coder::serialize_into_bytes(&message);
+        let mut serialized_message = coder::serialize_into_bytes(&message);
 
         let waiting_consensus_nodes = self.waiting_consensus_nodes.clone();
         println!(
@@ -417,51 +442,69 @@ impl Controller {
         }
     }
 
+    pub fn need_reset(&mut self) -> bool {
+        self.consensus_nodes_set().len() as u16 != self.crash_reset_success_count
+    }
+
     pub fn reset_consensus_node(&mut self) {
-        // self.consensus_node_mode_state().clear();
-        let message = Message {
-            interactive_message: InteractiveMessage::Reset(Local::now().timestamp_millis() as u64),
-            source: self.id_bytes().clone(),
-        };
+        if !self.need_reset() {
+            let next_mid_test_item = self.next_mid_test_item.clone();
+            if let Some(item) = next_mid_test_item {
+                match item {
+                    TestItem::Scalability(_, _, _) => {
+                        self.next_mid_test(item, None);
+                    }
+                    TestItem::Crash(crash_count, _) => {
+                        let crash_peer_id = self.random_crash_a_consensus_node();
 
-        let serialized_message = coder::serialize_into_bytes(&message);
+                        if let Some(id) = crash_peer_id {
+                            let imessage =
+                                InteractiveMessage::CrashNode(crash_count, id.to_bytes());
+                            self.next_mid_test(item.clone(), Some(imessage));
+                        }
+                    }
+                    _ => {}
+                }
+            } else {
+                self.next_test();
+            }
+        } else {
+            // self.consensus_node_mode_state().clear();
+            let message = Message {
+                interactive_message: InteractiveMessage::Reset(
+                    Local::now().timestamp_millis() as u64
+                ),
+                source: vec![],
+            };
 
-        let consensus_nodes = self.consensus_nodes_set().clone();
-        // println!(
-        //     "[Reset_Consensus_node] Current Consensus Nodes: {:?}",
-        //     &consensus_nodes
-        // );
-        for peer_id in consensus_nodes {
-            self.peer_mut()
-                .network_swarm_mut()
-                .behaviour_mut()
-                .unicast
-                .send_message(&peer_id, serialized_message.clone());
+            let serialized_message = coder::serialize_into_bytes(&message);
+
+            let consensus_nodes = self.consensus_nodes_set().clone();
+            // println!(
+            //     "[Reset_Consensus_node] Current Consensus Nodes: {:?}",
+            //     &consensus_nodes
+            // );
+            for peer_id in consensus_nodes {
+                self.peer_mut()
+                    .network_swarm_mut()
+                    .behaviour_mut()
+                    .unicast
+                    .send_message(&peer_id, serialized_message.clone());
+            }
         }
-
-        // let topic = IdentTopic::new("Reset");
-        // if let Err(e) = self
-        //     .peer_mut()
-        //     .network_swarm_mut()
-        //     .behaviour_mut()
-        //     .gossipsub
-        //     .publish(topic.clone(), serialized_message)
-        // {
-        //     eprintln!("Publish message error:{:?}", e);
-        // }
     }
 
     pub fn next_test(&mut self) -> bool {
         self.configure_analyzer()
     }
 
-    pub fn next_mid_test(&mut self, test_item: TestItem) {
-        let message = Message {
+    pub fn next_mid_test(&mut self, test_item: TestItem, option: Option<InteractiveMessage>) {
+        let mut message = Message {
             interactive_message: InteractiveMessage::TestItem(test_item),
             source: self.id_bytes().clone(),
         };
 
-        let serialized_message = coder::serialize_into_bytes(&message);
+        let mut serialized_message = coder::serialize_into_bytes(&message);
 
         let analyzer_id = self.analyzer_id();
         self.peer_mut()
@@ -469,6 +512,20 @@ impl Controller {
             .behaviour_mut()
             .unicast
             .send_message(&analyzer_id, serialized_message);
+
+        if let Some(imessage) = option {
+            message = Message {
+                interactive_message: imessage,
+                source: vec![],
+            };
+
+            serialized_message = coder::serialize_into_bytes(&message);
+            self.peer_mut()
+                .network_swarm_mut()
+                .behaviour_mut()
+                .unicast
+                .send_message(&analyzer_id, serialized_message);
+        }
     }
 
     pub fn print_unfinished_test_items(&self) {
@@ -495,18 +552,27 @@ impl Controller {
 
         self.feedback_crash_node = peer_id.clone();
         let serialized_message = coder::serialize_into_bytes(&message);
+        // for i in 1..4 {
+        //     println!("{}", i);
+        //     self.peer_mut()
+        //     .network_swarm_mut()
+        //     .behaviour_mut()
+        //     .unicast
+        //     .send_message(&peer_id, serialized_message.clone());
+        // }
+
         self.peer_mut()
             .network_swarm_mut()
             .behaviour_mut()
             .unicast
-            .send_message(&peer_id, serialized_message);
-
+            .send_message(&peer_id, serialized_message.clone());
     }
 
-    pub fn random_crash_a_consensus_node(&mut self) {
+    pub fn random_crash_a_consensus_node(&mut self) -> Option<PeerId> {
         if 0 == self.optional_crash_consensus_nodes_set().len() {
             eprintln!("No running consensus node");
             self.next_test();
+            return None;
         } else {
             let peer_id = self
                 .optional_crash_consensus_nodes_set()
@@ -517,6 +583,8 @@ impl Controller {
             let mode = ConsensusNodeMode::Crash(1000);
             self.set_consensus_node_mode(peer_id, mode);
             self.optional_crash_consensus_nodes_set().remove(&peer_id);
+
+            return Some(peer_id);
         }
     }
 
@@ -546,16 +614,6 @@ impl Controller {
                 .unicast
                 .send_message(&peer_id, serialized_message.clone());
         }
-        // let topic = IdentTopic::new("Reset");
-        // if let Err(e) = self
-        //     .peer_mut()
-        //     .network_swarm_mut()
-        //     .behaviour_mut()
-        //     .gossipsub
-        //     .publish(topic, serialized_message)
-        // {
-        //     eprintln!("Publish message error:{:?}", e);
-        // }
     }
 
     // Start a test
@@ -593,42 +651,38 @@ impl Controller {
                 );
             }
             InteractiveMessage::CompletedTest(test_item) => {
-                self.reset_consensus_node();
-                println!("{:?}", test_item.clone());
-
+                println!("Complete {:?} test.", test_item.clone());
                 match test_item {
                     TestItem::Scalability(count, max, internal) => {
                         if count + internal <= max {
-                            let test_item = TestItem::Scalability(count + internal, max, internal);
-                            self.next_mid_test(test_item);
+                            self.next_mid_test_item =
+                                Some(TestItem::Scalability(count + internal, max, internal));
+                            // self.next_mid_test(test_item, None);
                         } else {
-                            self.next_test_flag = self.next_test();
+                            self.next_mid_test_item = None;
+                            // self.next_test_flag = self.next_test();
                         }
                     }
                     TestItem::Crash(count, max) => {
                         if count + 1 <= max {
-                            let test_item = TestItem::Crash(count + 1, max);
-                            self.next_mid_test(test_item);
-                            self.random_crash_a_consensus_node();
+                            self.next_mid_test_item = Some(TestItem::Crash(count + 1, max));
+
+                            // let crash_peer_id = self.random_crash_a_consensus_node();
+
+                            // if let Some(id) = crash_peer_id {
+                            //     let imessage = InteractiveMessage::CrashNode(count+1, id.to_bytes());
+                            //     self.next_mid_test(test_item, Some(imessage));
+                            // }
                         } else {
-                            self.next_test_flag = self.next_test();
+                            self.next_mid_test_item = None;
+                            // self.next_test_flag = self.next_test();
                         }
                     }
                     TestItem::Malicious(_) => {}
-                    _ => {
-                        self.next_test_flag = self.next_test();
-                    }
+                    _ => {}
                 }
 
-                // tokio::time::sleep(Duration::from_millis(5000)).await;
-
-                // if next_test_flag {
-                //     println!("next test start!!!");
-                //     self.protocol_start();
-                //     self.start_test();
-                // } else {
-                //     println!("Protocol Test is completed!");
-                // }
+                self.reset_consensus_node();
             }
             _ => {}
         };
@@ -641,18 +695,81 @@ impl Controller {
                 println!("{:?} subscribe consensus topoc success!", &peer_id);
                 self.remove_waiting_consensus_node(&peer_id);
                 self.consensus_nodes_set().insert(peer_id);
+                self.not_crash_consensus_nodes_set().insert(peer_id);
                 self.optional_crash_consensus_nodes_set().insert(peer_id);
             }
-            InteractiveMessage::ConsensusNodeModeSuccess => {
+            InteractiveMessage::ResetSuccess(mode) => match mode {
+                ConsensusNodeMode::Uninitialized => todo!(),
+                ConsensusNodeMode::Honest => {
+                    self.reset_success_count += 1;
+                    self.check_reset_all_success();
+                }
+                ConsensusNodeMode::Dishonest(_) => todo!(),
+                ConsensusNodeMode::Crash(_) => {
+                    self.crash_reset_success_count += 1;
+                    self.crash_consensus_nodes_set().insert(peer_id);
+                    self.not_crash_consensus_nodes_set().remove(&peer_id);
+                    if !self.consensus_nodes_set().len() as u16 == self.crash_reset_success_count {
+                        self.check_reset_all_success();
+                    }
+                }
+            },
+            InteractiveMessage::ConsensusNodeModeSuccess(mode) => {
                 println!("Feedback:{:?}", &peer_id);
-                if self.feedback_crash_node.to_string().eq(&peer_id.to_string()) {
-                    println!("protocol start success!!!");
-                    self.protocol_start();
-                    self.start_test();
+                match mode {
+                    ConsensusNodeMode::Uninitialized => todo!(),
+                    ConsensusNodeMode::Honest => {
+                        println!("Honest consensus node: {:?}", &peer_id);
+                    }
+                    ConsensusNodeMode::Dishonest(_) => todo!(),
+                    ConsensusNodeMode::Crash(_) => {
+                        println!("Crash consensus node: {:?}", &peer_id);
+                        if self
+                            .feedback_crash_node
+                            .to_string()
+                            .eq(&peer_id.to_string())
+                        {
+                            // self.not_crash_consensus_nodes_set().remove(&peer_id);
+                            println!("protocol start success!!!");
+                            self.protocol_start();
+                            self.start_test();
+                        }
+                    }
                 }
             }
             _ => {}
         };
+    }
+
+    pub fn check_reset_all_success(&mut self) {
+        println!("Consensus node count: {}", self.consensus_nodes_set().len());
+        if self.consensus_nodes_set().len() as u16
+            == (self.reset_success_count + self.crash_reset_success_count)
+        {
+            println!("All consensus node reset ok!!!");
+            self.reset_success_count = 0;
+            self.crash_reset_success_count = 0;
+            let next_mid_test_item = self.next_mid_test_item.clone();
+            if let Some(item) = next_mid_test_item {
+                match item {
+                    TestItem::Scalability(_, _, _) => {
+                        self.next_mid_test(item, None);
+                    }
+                    TestItem::Crash(crash_count, _) => {
+                        let crash_peer_id = self.random_crash_a_consensus_node();
+
+                        if let Some(id) = crash_peer_id {
+                            let imessage =
+                                InteractiveMessage::CrashNode(crash_count, id.to_bytes());
+                            self.next_mid_test(item.clone(), Some(imessage));
+                        }
+                    }
+                    _ => {}
+                }
+            } else {
+                self.next_test();
+            }
+        }
     }
 
     // Process client commands before matching
@@ -701,20 +818,6 @@ impl Controller {
             self.configure_analyzer();
         }
 
-        // if let Some(ref matches) = matches.subcommand_matches("test") {
-        //     if let Some(_) = matches.subcommand_matches("pbft") {
-        //         println!("\n开始进行PBFT共识协议的测试");
-        //     };
-
-        //     if let Some(_) = matches.subcommand_matches("hotstuff") {};
-
-        //     if let Some(_) = matches.subcommand_matches("chain_hotstuff") {
-        //         let rt = tokio::runtime::Runtime::new().unwrap();
-        //         let async_req =
-        //             async { println!("开始进行chain_hotstuff共识协议的测试") };
-        //         rt.block_on(async_req);
-        //     };
-        // }
     }
 
     // Framework network message handler startup function
