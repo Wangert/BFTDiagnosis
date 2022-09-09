@@ -166,8 +166,8 @@ impl NetworkBehaviour for Unicast {
             SubstreamProtocol::new(Default::default(), ()),
             OneShotHandlerConfig {
                 keep_alive_timeout: Duration::from_secs(100),
-                outbound_substream_timeout: Duration::from_secs(10),
-                max_dial_negotiated: 8,
+                outbound_substream_timeout: Duration::from_secs(100),
+                max_dial_negotiated: 16,
             },
         )
     }

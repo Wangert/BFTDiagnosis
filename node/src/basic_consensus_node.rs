@@ -13,7 +13,7 @@ use crate::{
     },
 };
 
-use chrono::{Local};
+use chrono::Local;
 use libp2p::{
     futures::StreamExt,
     gossipsub::{GossipsubEvent, IdentTopic},
@@ -26,8 +26,11 @@ use network::{
     peer::Peer,
 };
 
-use serde::{Serialize, Deserialize};
-use tokio::{sync::Notify, time::{Instant, interval_at}};
+use serde::{Deserialize, Serialize};
+use tokio::{
+    sync::Notify,
+    time::{interval_at, Instant},
+};
 use utils::coder::{self};
 
 pub struct ConsensusNode<TLog, TState>
@@ -195,17 +198,34 @@ where
     pub fn protocol_start_preprocess(&mut self) {
         let mode = self.mode();
         match mode {
-            ConsensusNodeMode::Uninitialized => {},
-            ConsensusNodeMode::Honest => todo!(),
-            ConsensusNodeMode::Dishonest(_) => todo!(),
-            ConsensusNodeMode::Crash(internal) => {
-                self.crash_timer_start(internal);
+            ConsensusNodeMode::Uninitialized => {}
+            ConsensusNodeMode::Honest => {
+                println!("I'm a honest consensus node!");
             },
+            ConsensusNodeMode::Dishonest(_) => {},
+            ConsensusNodeMode::Crash(internal) => {
+                println!("I'm a crash consensus node in future!");
+                self.crash_timer_start(internal);
+            }
         }
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self, mode: ConsensusNodeMode) {
         self.request_buffer.clear();
+
+        let interactive_message = InteractiveMessage::ResetSuccess(mode);
+                let message = Message {
+                    interactive_message,
+                    source: vec![],
+                };
+
+                let controller_id = self.controller_id();
+                let serialized_message = coder::serialize_into_bytes(&message);
+                self.peer_mut()
+                    .network_swarm_mut()
+                    .behaviour_mut()
+                    .unicast
+                    .send_message(&controller_id, serialized_message);
     }
 
     pub fn crash_timer_start(&mut self, internal: u64) {
@@ -234,6 +254,9 @@ where
                     eprintln!("Not found initialization!");
                 };
             }
+            InteractiveMessage::ConsensusNodeMode(_) => {
+                println!("sbsbsbsbsbsbs");
+            }
             _ => {}
         };
     }
@@ -251,6 +274,8 @@ where
                 {
                     eprintln!("Subscribe consensus topic error:{:?}", e);
                 };
+
+                self.set_mode(ConsensusNodeMode::Honest);
 
                 let interactive_message = InteractiveMessage::SubscribeConsensusTopicSuccess;
                 let message = Message {
@@ -272,22 +297,24 @@ where
                 self.message_handler_start().await;
             }
             InteractiveMessage::ConsensusNodeMode(mode) => {
-                self.set_mode(mode);
-                println!("Set mode success: {:?}", self.mode());
+                if !self.mode().eq(&mode) {
+                    self.set_mode(mode);
+                    println!("Set mode success: {:?}", self.mode());
 
-                let interactive_message = InteractiveMessage::ConsensusNodeModeSuccess;
-                let message = Message {
-                    interactive_message,
-                    source: vec![],
-                };
+                    let interactive_message = InteractiveMessage::ConsensusNodeModeSuccess(self.mode());
+                    let message = Message {
+                        interactive_message,
+                        source: vec![],
+                    };
 
-                let controller_id = self.controller_id();
-                let serialized_message = coder::serialize_into_bytes(&message);
-                self.peer_mut()
-                    .network_swarm_mut()
-                    .behaviour_mut()
-                    .unicast
-                    .send_message(&controller_id, serialized_message);
+                    let controller_id = self.controller_id();
+                    let serialized_message = coder::serialize_into_bytes(&message);
+                    self.peer_mut()
+                        .network_swarm_mut()
+                        .behaviour_mut()
+                        .unicast
+                        .send_message(&controller_id, serialized_message);
+                }
             }
             _ => {}
         };
@@ -365,7 +392,8 @@ where
         loop {
             tokio::select! {
                 _ = protocol_stop_notify.notified() => {
-                    self.reset();
+                    let mode = self.mode();
+                    self.reset(mode);
                     println!("Reset completed!!!");
                     break;
                 }
@@ -377,7 +405,8 @@ where
 
                     println!("Crash!!!!!!!!!!");
 
-                    self.reset();
+                    let mode = self.mode();
+                    self.reset(mode);
                     break;
                 }
                 // start consensus notify
@@ -413,7 +442,7 @@ where
                             self.running_controller_message_handler(message);
                         } else {
                             self.consensus_protocol_message_handler(&message.data);
-                        }; 
+                        };
                     }
                     SwarmEvent::Behaviour(OutEvent::Gossipsub(GossipsubEvent::Message {
                         propagation_source: _peer_id,
@@ -459,7 +488,7 @@ where
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum ConsensusNodeMode {
     Uninitialized,
     Honest,
