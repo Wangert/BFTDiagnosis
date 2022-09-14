@@ -1,14 +1,14 @@
 # Test Option Configuration
 [throughput]
-enable = false
+enable = true
 
 [latency]
-enable = false
+enable = true
 
 [scalability]
-enable = false
-max = 8
-internal = 2
+enable = true
+max = 2
+internal = 1
 
 # Security testing: crash and malicious behaviours
 [crash]

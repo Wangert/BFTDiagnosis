@@ -1,12 +1,12 @@
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::HashMap};
 
 use chrono::Local;
 use libp2p::PeerId;
-use network::peer::Peer;
+
 
 use crate::{
     common::get_request_hash,
-    message::{ConsensusEndData, ConsensusStartData, Request, TestItem},
+    message::{ConsensusEndData, ConsensusStartData, Request},
 };
 
 #[derive(Debug, Clone)]
@@ -36,7 +36,7 @@ pub struct DataWarehouse {
     scalability_results: HashMap<u16, HashMap<PeerId, ScalabilityResult>>,
 
     crash_nodes: HashMap<u16, Vec<PeerId>>,
-    crash_results: HashMap<u16, HashMap<PeerId, Vec<CrashResult>>>
+    crash_results: HashMap<u16, HashMap<PeerId, Vec<CrashResult>>>,
 }
 
 // Latency result
@@ -110,7 +110,6 @@ impl DataWarehouse {
                 println!("NodeID({:?}) ==> {:?}", peer_id, scalability_result);
             }
         }
-
     }
 
     pub fn record_crash_node(&mut self, count: u16, peer_id: PeerId) {
@@ -310,38 +309,43 @@ impl DataWarehouse {
         self.compute_scalability_latency();
         self.compute_scalability_throughput();
 
-        let mut scalablity_results: HashMap<PeerId, ScalabilityResult> = HashMap::new(); 
+        let mut scalablity_results: HashMap<PeerId, ScalabilityResult> = HashMap::new();
         let scalability_mid_throughputs = self.scalability_mid_throughputs.clone();
-        scalability_mid_throughputs.iter().for_each(|(&peer_id, &throughput)| {
-            if let Some(latency_results) = self.scalability_mid_latencies.get(&peer_id) {
+        scalability_mid_throughputs
+            .iter()
+            .for_each(|(&peer_id, &throughput)| {
+                if let Some(latency_results) = self.scalability_mid_latencies.get(&peer_id) {
+                    let scalabililty_result = ScalabilityResult {
+                        throughput,
+                        latency_results: latency_results.clone(),
+                    };
+                    scalablity_results.insert(peer_id, scalabililty_result);
+
+                    self.scalability_mid_throughputs.remove(&peer_id);
+                    self.scalability_mid_latencies.remove(&peer_id);
+                } else {
+                    let scalabililty_result = ScalabilityResult {
+                        throughput,
+                        latency_results: vec![],
+                    };
+                    scalablity_results.insert(peer_id, scalabililty_result);
+
+                    self.scalability_mid_throughputs.remove(&peer_id);
+                }
+            });
+
+        self.scalability_mid_latencies
+            .iter()
+            .for_each(|(&peer_id, latency_results)| {
                 let scalabililty_result = ScalabilityResult {
-                    throughput,
+                    throughput: 0,
                     latency_results: latency_results.clone(),
                 };
                 scalablity_results.insert(peer_id, scalabililty_result);
+            });
 
-                self.scalability_mid_throughputs.remove(&peer_id);
-                self.scalability_mid_latencies.remove(&peer_id);
-            } else {
-                let scalabililty_result = ScalabilityResult {
-                    throughput,
-                    latency_results: vec![],
-                };
-                scalablity_results.insert(peer_id, scalabililty_result);
-
-                self.scalability_mid_throughputs.remove(&peer_id);
-            }
-        });
-
-        self.scalability_mid_latencies.iter().for_each(|(&peer_id, latency_results)| {
-            let scalabililty_result = ScalabilityResult {
-                throughput: 0,
-                latency_results: latency_results.clone(),
-            };
-            scalablity_results.insert(peer_id, scalabililty_result);
-        });
-
-        self.scalability_results.insert(node_count, scalablity_results);
+        self.scalability_results
+            .insert(node_count, scalablity_results);
     }
 
     pub fn test_crash(&mut self, crash_count: u16) {
@@ -392,7 +396,11 @@ impl DataWarehouse {
         }
     }
 
-    pub fn store_crash_result(crash_results: &mut HashMap<PeerId, Vec<CrashResult>>, peer_id: &PeerId, crash_result: CrashResult) {
+    pub fn store_crash_result(
+        crash_results: &mut HashMap<PeerId, Vec<CrashResult>>,
+        peer_id: &PeerId,
+        crash_result: CrashResult,
+    ) {
         if let Some(crash_result_vec) = crash_results.get_mut(&peer_id) {
             crash_result_vec.push(crash_result);
         } else {
@@ -418,7 +426,11 @@ impl DataWarehouse {
         }
     }
 
-    pub fn record_scalability_mid_latency(&mut self, peer_id: PeerId, latency_result: LatencyResult) {
+    pub fn record_scalability_mid_latency(
+        &mut self,
+        peer_id: PeerId,
+        latency_result: LatencyResult,
+    ) {
         if let Some(latency_result_vec) = self.scalability_mid_latencies.get_mut(&peer_id) {
             latency_result_vec.push(latency_result);
         } else {
@@ -426,6 +438,7 @@ impl DataWarehouse {
             self.scalability_mid_latencies.insert(peer_id, new_vec);
         }
     }
+
     pub fn reset(&mut self) {
         self.t_start_data.clear();
         self.t_end_data.clear();
@@ -443,7 +456,7 @@ impl DataWarehouse {
 pub mod data_warehouse_test {
     use core::time;
 
-    use chrono::{DateTime, Local};
+    use chrono::{Local};
     use libp2p::PeerId;
 
     use crate::message::{ConsensusEndData, ConsensusStartData, Request};
@@ -564,10 +577,10 @@ pub mod data_warehouse_test {
             end_time_sec - current_time_sec
         );
 
-
-            println!("===================================================================");
-            println!("                                                                   ");
-            println!("
+        println!("===================================================================");
+        println!("                                                                   ");
+        println!(
+            "
             
             __        __   _                            _                         
             \\ \\      / /__| | ___ ___  _ __ ___   ___  | |_ ___    _   _ ___  ___ 
@@ -582,9 +595,10 @@ pub mod data_warehouse_test {
             |____/|_|     |_| |____/|_|\\__,_|\\__, |_| |_|\\___/|___/_|___/         
                                              |___/                               
             
-            ");
-            println!("Welcome to use BFTDiagnosis！");
-            println!("                                                                   ");
-            println!("===================================================================");
+            "
+        );
+        println!("Welcome to use BFTDiagnosis！");
+        println!("                                                                   ");
+        println!("===================================================================");
     }
 }

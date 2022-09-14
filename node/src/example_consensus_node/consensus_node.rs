@@ -1,10 +1,10 @@
 use chrono::Local;
-use libp2p::PeerId;
+
 use utils::coder;
 
 use crate::{
     basic_consensus_node::ConsensusNode,
-    behaviour::{ConsensusNodeBehaviour, ProtocolHandler, ProtocolLogsReadBehaviour, NodeStateUpdateBehaviour, ConsensusEnd}, message::{Request, ConsensusData, ConsensusDataMessage},
+    behaviour::{ConsensusNodeBehaviour, ProtocolLogsReadBehaviour, NodeStateUpdateBehaviour, ConsensusEnd}, message::{Request, ConsensusData, ConsensusDataMessage},
 };
 
 impl<TLog, TState> ConsensusNodeBehaviour for ConsensusNode<TLog, TState>
@@ -16,7 +16,7 @@ where
         todo!()
     }
 
-    fn consensus_protocol_message_handler(&mut self, msg: &[u8]) -> ConsensusEnd {
+    fn consensus_protocol_message_handler(&mut self, _msg: &[u8]) -> ConsensusEnd {
         let cmd = format!("{}{}", "wangjitao", Local::now().timestamp_subsec_nanos());
         let request = Request {
             cmd,
@@ -24,7 +24,7 @@ where
         ConsensusEnd::Yes(request)
     }
 
-    fn receive_consensus_requests(&mut self, requests: Vec<crate::message::Request>) {
+    fn receive_consensus_requests(&mut self, _requests: Vec<crate::message::Request>) {
         todo!()
     }
 

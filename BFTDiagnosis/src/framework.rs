@@ -2,9 +2,14 @@ use cli::{
     client::{Client, ClientType},
     cmd::rootcmd::CMD,
 };
-use libp2p::PeerId;
+
 use network::peer::Peer;
-use node::{analyzer::analyzer::Analyzer, controller::controller::Controller, basic_consensus_node::ConsensusNode, example_consensus_node::{test_log::TestLog, test_state::TestState}};
+use node::{
+    analyzer::analyzer::Analyzer,
+    basic_consensus_node::ConsensusNode,
+    controller::controller::Controller,
+    example_consensus_node::{test_log::TestLog, test_state::TestState},
+};
 use utils::parse::into_ip4_tcp_multiaddr;
 
 use crate::config::{read_analyzer_config, read_bft_diagnosis_config, read_controller_config};
@@ -19,7 +24,7 @@ pub struct BFTDiagnosisFramework {
 impl BFTDiagnosisFramework {
     pub fn new() -> Self {
         let cmd_matches = CMD.clone().get_matches();
-        let mut client = Client::new(cmd_matches);
+        let client = Client::new(cmd_matches);
 
         Self { client }
     }
@@ -54,10 +59,26 @@ impl BFTDiagnosisFramework {
 
             println!("{:#?}", &analyzer_config);
             let analyzer_ip_addr = analyzer_config.clone().network.unwrap().ip_addr.unwrap();
-            let analyzer_ip_port = analyzer_config.clone().network.unwrap().ip_port.unwrap().clone();
+            let analyzer_ip_port = analyzer_config
+                .clone()
+                .network
+                .unwrap()
+                .ip_port
+                .unwrap()
+                .clone();
 
-            let performance_test_duration = analyzer_config.clone().execution.unwrap().performance_duration.unwrap();
-            let performance_test_internal = analyzer_config.clone().execution.unwrap().performance_internal.unwrap();
+            let performance_test_duration = analyzer_config
+                .clone()
+                .execution
+                .unwrap()
+                .performance_duration
+                .unwrap();
+            let performance_test_internal = analyzer_config
+                .clone()
+                .execution
+                .unwrap()
+                .performance_internal
+                .unwrap();
             let crash_test_duration = analyzer_config.execution.unwrap().crash_duration.unwrap();
 
             let swarm_addr = into_ip4_tcp_multiaddr(analyzer_ip_addr.as_str(), analyzer_ip_port);
@@ -65,7 +86,12 @@ impl BFTDiagnosisFramework {
 
             // let mut node = Node::new(Box::new(local_peer), &args.swarm_port.to_string());
 
-            let mut node = Analyzer::new(local_peer, performance_test_duration, performance_test_internal, crash_test_duration);
+            let mut node = Analyzer::new(
+                local_peer,
+                performance_test_duration,
+                performance_test_internal,
+                crash_test_duration,
+            );
 
             let args_sender = node.args_sender();
             self.client.run(args_sender, ClientType::Analyzer);
@@ -90,8 +116,9 @@ impl BFTDiagnosisFramework {
                     "\nConsensus node has generated.PeerId is : {:?}",
                     local_peer.id
                 );
-                
-                let mut node: ConsensusNode<TestLog, TestState> = ConsensusNode::new(local_peer, msg[0]);
+
+                let mut node: ConsensusNode<TestLog, TestState> =
+                    ConsensusNode::new(local_peer, msg[0]);
                 self.client.consensus_run();
                 node.network_start().await?;
             }

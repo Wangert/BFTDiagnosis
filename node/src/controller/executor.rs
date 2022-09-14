@@ -6,7 +6,6 @@ use tokio::sync::{
     Notify,
 };
 use utils::{
-    coder::{self},
     crypto::eddsa::{EdDSAKeyPair, EdDSAPublicKey},
 };
 
