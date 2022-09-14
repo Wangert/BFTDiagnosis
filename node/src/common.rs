@@ -74,7 +74,7 @@ pub fn get_request_hash(request: &Request) -> String {
 
 #[cfg(test)]
 mod node_common_tests {
-    use std::thread::sleep_ms;
+    
 
     use chrono::prelude::*;
 

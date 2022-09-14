@@ -1,6 +1,6 @@
-use std::{collections::HashMap, error::Error, process::exit, sync::Arc, time::Duration};
+use std::{collections::HashMap, error::Error, sync::Arc, time::Duration};
 
-use cli::{client::Client, cmd::rootcmd::CMD};
+use cli::cmd::rootcmd::CMD;
 use libp2p::{
     futures::StreamExt,
     gossipsub::{GossipsubEvent, IdentTopic},
@@ -9,27 +9,19 @@ use libp2p::{
     PeerId,
 };
 use network::{
-    p2p_protocols::{
-        base_behaviour::{BaseBehaviour, OutEvent},
-        unicast::behaviour::UnicastEvent,
-    },
+    p2p_protocols::{base_behaviour::OutEvent, unicast::behaviour::UnicastEvent},
     peer::Peer,
 };
 
 use tokio::{
-    io::{self, AsyncBufReadExt},
     sync::mpsc::{self, Receiver, Sender},
     sync::Notify,
-    time::{interval, interval_at, Instant},
+    time::{interval_at, Instant},
 };
-use utils::coder::{self, serialize_into_bytes};
+use utils::coder::{self};
 
-use crate::{
-    common::{generate_bls_keys, generate_consensus_requests_command},
-    message::{
-        Command, CommandMessage, Component, ConsensusData, ConsensusDataMessage, ConsensusEndData,
-        ConsensusNodePKInfo, ConsensusStartData, InteractiveMessage, Message, TestItem,
-    },
+use crate::message::{
+    Component, ConsensusData, ConsensusDataMessage, InteractiveMessage, Message, TestItem,
 };
 
 use clap::{ArgMatches, Command as clap_Command};
@@ -245,7 +237,7 @@ impl Analyzer {
         let interactive_message = InteractiveMessage::ComponentInfo(component);
         let message = Message {
             interactive_message,
-            source: self.id_bytes().clone()
+            source: self.id_bytes().clone(),
         };
 
         let serialized_message = coder::serialize_into_bytes(&message);
@@ -277,7 +269,7 @@ impl Analyzer {
                     data_warehouse.compute_throughput();
                     data_warehouse.compute_latency();
                 }
-                TestItem::Scalability(count, max, _) => {
+                TestItem::Scalability(count, _max, _) => {
                     data_warehouse.compute_scalability(count);
                 }
                 TestItem::Crash(count, _) => {
@@ -316,7 +308,7 @@ impl Analyzer {
                 println!("Controller PeerId: {:?}", controller_id.to_string());
                 self.add_controller(controller_id);
             }
-            InteractiveMessage::ComponentInfo(Component::Analyzer(id_bytes)) => {}
+            InteractiveMessage::ComponentInfo(Component::Analyzer(_id_bytes)) => {}
             InteractiveMessage::TestItem(item) => {
                 println!("Configure test item: {:?}", &item);
                 self.set_test_item(item);
@@ -393,7 +385,7 @@ impl Analyzer {
         // let matches = self.client().arg_matches();
 
         if let Some(_) = matches.subcommand_matches("init") {
-            println!("BFT测试平台初始化成功！");
+            println!("Analyzer Initialization！");
             self.init();
         }
 
@@ -474,7 +466,7 @@ impl Analyzer {
                                 println!("\nController is: {:?}", &controller_id);
                                 self.add_controller(controller_id);
                             },
-                            InteractiveMessage::ComponentInfo(Component::Analyzer(id_bytes)) => {
+                            InteractiveMessage::ComponentInfo(Component::Analyzer(_id_bytes)) => {
 
                             },
                             _ => {}

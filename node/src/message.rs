@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use libp2p::PeerId;
-use serde::{Serialize, Deserialize};
-use threshold_crypto::{PublicKeyShare, SignatureShare, Signature};
+use serde::{Deserialize, Serialize};
+use threshold_crypto::PublicKeyShare;
 use utils::crypto::threshold_signature::TBLSKey;
 
-use crate::basic_consensus_node::ConsensusNodeMode;
+use crate::basic_consensus_node::{ConsensusNodeMode, ConfigureState};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Command {
@@ -48,9 +48,11 @@ pub enum InteractiveMessage {
     CompletedTest(TestItem),
 
     CrashNode(u16, Vec<u8>),
+    JoinConsensus(u64),
+    JoinConsensusSuccess,
 
-    SubscribeConsensusTopic(u64),
-    SubscribeConsensusTopicSuccess,
+    ConfigureConsensusNode(u64, ConfigureState),
+    ConfigureConsensusNodeSuccess(ConfigureState),
 
     ConsensusNodeMode(ConsensusNodeMode),
     ConsensusNodeModeSuccess(ConsensusNodeMode),
@@ -75,7 +77,7 @@ pub enum TestItem {
     Latency,
     // testing the throughput and latency of the protocol
     ThroughputAndLatency,
-    // testing the scalability of the protocol 
+    // testing the scalability of the protocol
     // (number of nodes, maximum number of nodes, increment interval)
     Scalability(u16, u16, u16),
     // testing protocol security in the case of node crash, including the number of crash nodes
@@ -129,5 +131,5 @@ pub struct ConsensusEndData {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConsensusDataMessage {
-    pub data: ConsensusData
+    pub data: ConsensusData,
 }

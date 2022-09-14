@@ -5,10 +5,9 @@ use std::{
     time::Duration,
 };
 
-use chrono::Local;
 use libp2p::{
     gossipsub::{
-        Gossipsub, GossipsubConfigBuilder, GossipsubMessage, IdentTopic, MessageAuthenticity,
+        Gossipsub, GossipsubConfigBuilder, GossipsubMessage, MessageAuthenticity,
         MessageId, ValidationMode,
     },
     identity::Keypair,
@@ -75,7 +74,7 @@ impl BaseSwarm {
         // )
         // .expect("Gossipsub correct configuration");
 
-        let mut gossipsub: Gossipsub = Gossipsub::new(
+        let gossipsub: Gossipsub = Gossipsub::new(
             MessageAuthenticity::Author(peer_id.clone()),
             gossipsub_config,
         )

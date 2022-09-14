@@ -1,7 +1,7 @@
-use clap::{ArgMatches, Command};
+use clap::{ArgMatches};
 use tokio::sync::mpsc::Sender;
 
-use crate::cmd::rootcmd::CONTROLLER_CMD;
+
 use crate::cmd::{get_command_completer};
 use crate::commons::CommandCompleter;
 use log::error;
@@ -14,9 +14,9 @@ use rustyline::{validate, CompletionType, Config, Context, Editor, OutputStreamT
 use rustyline_derive::Helper;
 use shellwords::split;
 use std::borrow::Cow::{self, Borrowed, Owned};
-use std::process::{exit};
 
-use crate::interact;
+
+
 
 #[derive(Debug, Clone)]
 pub enum ClientType {

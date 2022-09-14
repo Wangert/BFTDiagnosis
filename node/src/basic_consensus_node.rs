@@ -1,15 +1,13 @@
-use std::{collections::HashMap, error::Error, hash::Hash, sync::Arc, time::Duration};
+use std::{collections::HashMap, error::Error, sync::Arc, time::Duration};
 
 use crate::{
     behaviour::{
-        ConsensusEnd, ConsensusNodeBehaviour, NodeStateUpdateBehaviour, ProtocolHandler,
-        ProtocolLogsReadBehaviour,
+        ConsensusEnd, ConsensusNodeBehaviour, NodeStateUpdateBehaviour, ProtocolLogsReadBehaviour,
     },
     common::get_request_hash,
-    config::ExtraInfo,
     message::{
-        Command, CommandMessage, Component, ConsensusData, ConsensusDataMessage, ConsensusEndData,
-        ConsensusStartData, InteractiveMessage, MaliciousAction, Message, Request,
+        Component, ConsensusData, ConsensusDataMessage, ConsensusEndData, ConsensusStartData,
+        InteractiveMessage, MaliciousAction, Message, Request,
     },
 };
 
@@ -52,9 +50,6 @@ where
     protocol_stop_notify: Arc<Notify>,
     crash_notify: Arc<Notify>,
 
-    // diagnostic indicators
-    diagnostic_indicators: Vec<Command>,
-
     // consensus node's mode: Honest、Dishonest、Outage
     mode: ConsensusNodeMode,
 }
@@ -78,7 +73,6 @@ where
             protocol_stop_notify: Arc::new(Notify::new()),
             crash_notify: Arc::new(Notify::new()),
 
-            diagnostic_indicators: Vec::new(),
             mode: ConsensusNodeMode::Uninitialized,
         }
     }
@@ -199,10 +193,10 @@ where
         let mode = self.mode();
         match mode {
             ConsensusNodeMode::Uninitialized => {}
-            ConsensusNodeMode::Honest => {
+            ConsensusNodeMode::Honest(_) => {
                 println!("I'm a honest consensus node!");
-            },
-            ConsensusNodeMode::Dishonest(_) => {},
+            }
+            ConsensusNodeMode::Dishonest(_) => {}
             ConsensusNodeMode::Crash(internal) => {
                 println!("I'm a crash consensus node in future!");
                 self.crash_timer_start(internal);
@@ -214,18 +208,18 @@ where
         self.request_buffer.clear();
 
         let interactive_message = InteractiveMessage::ResetSuccess(mode);
-                let message = Message {
-                    interactive_message,
-                    source: vec![],
-                };
+        let message = Message {
+            interactive_message,
+            source: vec![],
+        };
 
-                let controller_id = self.controller_id();
-                let serialized_message = coder::serialize_into_bytes(&message);
-                self.peer_mut()
-                    .network_swarm_mut()
-                    .behaviour_mut()
-                    .unicast
-                    .send_message(&controller_id, serialized_message);
+        let controller_id = self.controller_id();
+        let serialized_message = coder::serialize_into_bytes(&message);
+        self.peer_mut()
+            .network_swarm_mut()
+            .behaviour_mut()
+            .unicast
+            .send_message(&controller_id, serialized_message);
     }
 
     pub fn crash_timer_start(&mut self, internal: u64) {
@@ -263,7 +257,7 @@ where
 
     pub async fn no_running_controller_message_handler(&mut self, message: Message) {
         match message.interactive_message {
-            InteractiveMessage::SubscribeConsensusTopic(_) => {
+            InteractiveMessage::ConfigureConsensusNode(_, state) => {
                 let topic = IdentTopic::new("Consensus");
                 if let Err(e) = self
                     .peer_mut()
@@ -275,9 +269,9 @@ where
                     eprintln!("Subscribe consensus topic error:{:?}", e);
                 };
 
-                self.set_mode(ConsensusNodeMode::Honest);
+                self.set_mode(ConsensusNodeMode::Honest(state));
 
-                let interactive_message = InteractiveMessage::SubscribeConsensusTopicSuccess;
+                let interactive_message = InteractiveMessage::ConsensusNodeModeSuccess(self.mode());
                 let message = Message {
                     interactive_message,
                     source: vec![],
@@ -296,12 +290,41 @@ where
                 self.verify_initialization();
                 self.message_handler_start().await;
             }
+            InteractiveMessage::JoinConsensus(_) => {
+                let topic = IdentTopic::new("Consensus");
+                if let Err(e) = self
+                    .peer_mut()
+                    .network_swarm_mut()
+                    .behaviour_mut()
+                    .gossipsub
+                    .subscribe(&topic)
+                {
+                    eprintln!("Subscribe consensus topic error:{:?}", e);
+                };
+
+                self.set_mode(ConsensusNodeMode::Honest(ConfigureState::Other));
+
+                let interactive_message = InteractiveMessage::JoinConsensusSuccess;
+                let message = Message {
+                    interactive_message,
+                    source: vec![],
+                };
+
+                let controller_id = self.controller_id();
+                let serialized_message = coder::serialize_into_bytes(&message);
+                self.peer_mut()
+                    .network_swarm_mut()
+                    .behaviour_mut()
+                    .unicast
+                    .send_message(&controller_id, serialized_message);
+            }
             InteractiveMessage::ConsensusNodeMode(mode) => {
                 if !self.mode().eq(&mode) {
                     self.set_mode(mode);
                     println!("Set mode success: {:?}", self.mode());
 
-                    let interactive_message = InteractiveMessage::ConsensusNodeModeSuccess(self.mode());
+                    let interactive_message =
+                        InteractiveMessage::ConsensusNodeModeSuccess(self.mode());
                     let message = Message {
                         interactive_message,
                         source: vec![],
@@ -406,6 +429,7 @@ where
                     println!("Crash!!!!!!!!!!");
 
                     let mode = self.mode();
+                    println!("Mode:{:?}", &mode);
                     self.reset(mode);
                     break;
                 }
@@ -456,29 +480,6 @@ where
                             self.push_consensus_data_to_analysis_node(&data);
                         }
                     }
-                    // SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
-                    //     let swarm = self.peer_mut().network_swarm_mut();
-                    //     for (peer, _) in list {
-                    //         println!("Discovered {:?}", &peer);
-                    //         swarm.behaviour_mut().unicast.add_node_to_partial_view(&peer);
-                    //         swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
-                    //         // self.connected_nodes.insert(peer.to_string(), peer.clone());
-                    //     }
-                    //     //println!("Connected_nodes: {:?}", self.connected_nodes.lock().await);
-                    // }
-                    // SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
-                    //     let swarm = self.peer_mut().network_swarm_mut();
-                    //     for (peer, _) in list {
-                    //         if !swarm.behaviour_mut().mdns.has_node(&peer) {
-                    //             swarm.behaviour_mut().unicast.remove_node_from_partial_view(&peer);
-                    //             swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer);
-                    //             // self.connected_nodes.remove(&peer.to_string());
-                    //         }
-                    //     }
-                    // }
-                    // SwarmEvent::NewListenAddr { address, .. } => {
-                    //     println!("Listening on {:?}", address);
-                    // }
                     _ => {
                         println!("Default!");
                     }
@@ -491,7 +492,13 @@ where
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum ConsensusNodeMode {
     Uninitialized,
-    Honest,
+    Honest(ConfigureState),
     Dishonest(MaliciousAction),
     Crash(u64),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub enum ConfigureState {
+    First,
+    Other,
 }
