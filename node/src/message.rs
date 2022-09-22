@@ -47,11 +47,12 @@ pub enum InteractiveMessage {
     // test item has completed the interaction of the test
     CompletedTest(TestItem),
 
-    CrashNode(u16, Vec<u8>),
+    CrashNode(u16, Option<Vec<u8>>),
+    DishonestNode(Vec<u8>),
     JoinConsensus(u64),
     JoinConsensusSuccess,
 
-    ConfigureConsensusNode(u64, ConfigureState),
+    ConfigureConsensusNode(ConfigureState),
     ConfigureConsensusNodeSuccess(ConfigureState),
 
     ConsensusNodeMode(ConsensusNodeMode),
@@ -84,18 +85,29 @@ pub enum TestItem {
     // (number of crash nodes, maximum number of crash nodes)
     Crash(u16, u16),
     // testing protocol security in the case of malicious nodes
-    Malicious(MaliciousAction),
+    Malicious(MaliciousBehaviour),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
-pub enum MaliciousAction {
-    Action1,
-    Action2,
+pub enum MaliciousBehaviour {
+    LeaderFeignDeath(Round, u8),
+    LeaderSendAmbiguousMessage(Round, u8),
+    LeaderDelaySendMessage(Round, u8),
+    LeaderSendDuplicateMessage(Round, u8),
+
+    ReplicaNodeConspireForgeMessages,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+pub enum Round {
+    FirstRound,
+    OtherRound(u8),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Request {
     pub cmd: String,
+    pub flag: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

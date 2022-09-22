@@ -62,6 +62,7 @@ pub struct Execution {
     pub performance_duration: Option<u64>,
     pub performance_internal: Option<u64>,
     pub crash_duration: Option<u64>,
+    pub malicious_duration: Option<u64>,
 }
 
 pub fn read_controller_config() -> ControllerConfig {

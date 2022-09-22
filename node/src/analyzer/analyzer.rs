@@ -46,7 +46,8 @@ pub struct Analyzer {
     current_test_item: Option<TestItem>,
     performance_test_duration: u64,
     performance_test_internal: u64,
-    security_test_duration: u64,
+    crash_test_duration: u64,
+    malicious_test_duration: u64,
     // a data warehouse where protocol running data is stored and analyzed
     data_warehouse: DataWarehouse,
 
@@ -63,7 +64,8 @@ impl Analyzer {
         peer: Peer,
         performance_test_duration: u64,
         performance_test_internal: u64,
-        security_test_duration: u64,
+        crash_test_duration: u64,
+        malicious_test_duration: u64,
     ) -> Self {
         // let db_path = format!("./storage/data/{}_public_keys", port);
         let (args_sender, args_recevier) = mpsc::channel::<Vec<String>>(10);
@@ -78,7 +80,8 @@ impl Analyzer {
             current_test_item: None,
             performance_test_duration,
             performance_test_internal,
-            security_test_duration,
+            crash_test_duration,
+            malicious_test_duration,
             data_warehouse: DataWarehouse::new(),
             completed_test_notify: Arc::new(Notify::new()),
             internal_notify: Arc::new(Notify::new()),
@@ -216,9 +219,24 @@ impl Analyzer {
 
     pub async fn crash_test_timer_start(&self) {
         println!("\nCrash test timer start...");
-        println!("{}", &self.security_test_duration);
-        let duration = Duration::from_millis(self.security_test_duration);
+        println!("{}", &self.crash_test_duration);
+        let duration = Duration::from_millis(self.crash_test_duration);
         // println!("Current view timeout: {}", self.state.current_view_timeout);
+        let completed_test_notify = self.completed_test_notify();
+
+        tokio::spawn(async move {
+            let start = Instant::now() + duration;
+            let mut intv = interval_at(start, duration);
+
+            intv.tick().await;
+            completed_test_notify.notify_one();
+        });
+    }
+
+    pub async fn malicious_test_timer_start(&self) {
+        println!("\nMalicious test timer start...");
+        println!("{}", &self.malicious_test_duration);
+        let duration = Duration::from_millis(self.malicious_test_duration);
         let completed_test_notify = self.completed_test_notify();
 
         tokio::spawn(async move {
@@ -275,7 +293,9 @@ impl Analyzer {
                 TestItem::Crash(count, _) => {
                     data_warehouse.test_crash(count);
                 }
-                TestItem::Malicious(_) => {}
+                TestItem::Malicious(m) => {
+                    println!("MaliciousBehaviour Test: {:?}", m);
+                }
             }
         } else {
             println!("The current test item is empty. Please configure the test item!");
@@ -310,13 +330,16 @@ impl Analyzer {
             }
             InteractiveMessage::ComponentInfo(Component::Analyzer(_id_bytes)) => {}
             InteractiveMessage::TestItem(item) => {
+                println!("#############################################");
                 println!("Configure test item: {:?}", &item);
                 self.set_test_item(item);
                 self.data_warehouse_mut().reset();
             }
             InteractiveMessage::CrashNode(count, peer_id_bytes) => {
-                let peer_id = PeerId::from_bytes(&peer_id_bytes[..]).unwrap();
-                self.data_warehouse_mut().record_crash_node(count, peer_id);
+                if let Some(peer_id_bytes) = peer_id_bytes {
+                    let peer_id = PeerId::from_bytes(&peer_id_bytes[..]).unwrap();
+                    self.data_warehouse_mut().record_crash_node(count, peer_id);
+                }
             }
             InteractiveMessage::StartTest(_) => {
                 println!("StartTest");
@@ -331,9 +354,11 @@ impl Analyzer {
                         TestItem::Crash(_, _) => {
                             self.crash_test_timer_start().await;
                         }
-                        TestItem::Malicious(_) => {}
+                        TestItem::Malicious(_) => {
+                            self.malicious_test_timer_start().await;
+                        }
                     }
-                    self.compute_and_analyse();
+                    // self.compute_and_analyse();
                 }
             }
             _ => {}
@@ -385,7 +410,7 @@ impl Analyzer {
         // let matches = self.client().arg_matches();
 
         if let Some(_) = matches.subcommand_matches("init") {
-            println!("Analyzer Initialization！");
+            println!("\nAnalyzer Initialization！");
             self.init();
         }
 

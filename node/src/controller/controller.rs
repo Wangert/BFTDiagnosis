@@ -24,11 +24,11 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use utils::coder::{self, serialize_into_bytes};
 
 use crate::{
-    basic_consensus_node::{ConfigureState, ConsensusNodeMode},
+    basic_consensus_node::{ConfigureState, ConsensusNodeMode, MaliciousMode},
     common::{generate_bls_keys, generate_consensus_requests_command},
     message::{
         Command, CommandMessage, Component, ConsensusNodePKInfo, InteractiveMessage,
-        MaliciousAction, Message, TestItem,
+        MaliciousBehaviour, Message, Round, TestItem,
     },
 };
 
@@ -51,6 +51,7 @@ pub struct Controller {
     crash_consensus_nodes: HashSet<PeerId>,
     optional_crash_consensus_nodes: HashSet<PeerId>,
     optional_scalability_consensus_nodes: HashSet<PeerId>,
+    optional_dishonest_consensus_nodes: HashSet<PeerId>,
 
     analyzer_id: PeerId,
     test_items: Vec<TestItem>,
@@ -61,6 +62,7 @@ pub struct Controller {
     next_test_flag: bool,
     feedback_crash_node: PeerId,
     feedback_scalability_node: PeerId,
+    feedback_dishonest_node: PeerId,
 
     consensus_node_configure_count: u16,
     reset_success_count: u16,
@@ -93,6 +95,7 @@ impl Controller {
             crash_consensus_nodes: HashSet::new(),
             optional_crash_consensus_nodes: HashSet::new(),
             optional_scalability_consensus_nodes: HashSet::new(),
+            optional_dishonest_consensus_nodes: HashSet::new(),
 
             analyzer_id: PeerId::random(),
             test_items: Vec::new(),
@@ -103,6 +106,7 @@ impl Controller {
             next_test_flag: true,
             feedback_crash_node: PeerId::random(),
             feedback_scalability_node: PeerId::random(),
+            feedback_dishonest_node: PeerId::random(),
 
             consensus_node_configure_count: 0,
             reset_success_count: 0,
@@ -165,13 +169,53 @@ impl Controller {
 
         if let Some(malicious) = bft_diagnosis_config.malicious {
             if matches!(malicious.enable, Some(true)) {
-                if let Some(behaviour) = malicious.behaviour {
-                    if matches!(
-                        behaviour.cmp(&"action1".to_string()),
-                        std::cmp::Ordering::Equal
-                    ) {
-                        self.add_test_item(TestItem::Malicious(MaliciousAction::Action1));
-                    }
+                if let Some(behaviours) = malicious.behaviours {
+                    // let mut number_of_phase: u8 = 0;
+                    let number_of_phase = malicious.number_of_phase.unwrap();
+                    behaviours
+                        .iter()
+                        .for_each(|behaviour| match behaviour.as_str() {
+                            "LeaderFeignDeath" => {
+                                let b = MaliciousBehaviour::LeaderFeignDeath(
+                                    Round::FirstRound,
+                                    number_of_phase,
+                                );
+                                self.add_test_item(TestItem::Malicious(b));
+                            }
+                            "LeaderSendAmbiguousMessage" => {
+                                let b = MaliciousBehaviour::LeaderSendAmbiguousMessage(
+                                    Round::FirstRound,
+                                    number_of_phase,
+                                );
+                                self.add_test_item(TestItem::Malicious(b));
+                            }
+                            "LeaderDelaySendMessage" => {
+                                let b = MaliciousBehaviour::LeaderDelaySendMessage(
+                                    Round::FirstRound,
+                                    number_of_phase,
+                                );
+                                self.add_test_item(TestItem::Malicious(b));
+                            }
+                            "LeaderSendDuplicateMessage" => {
+                                let b = MaliciousBehaviour::LeaderSendDuplicateMessage(
+                                    Round::FirstRound,
+                                    number_of_phase,
+                                );
+                                self.add_test_item(TestItem::Malicious(b));
+                            }
+                            "ReplicaNodeConspireForgeMessages" => {
+                                let b = MaliciousBehaviour::ReplicaNodeConspireForgeMessages;
+                                self.add_test_item(TestItem::Malicious(b));
+                            }
+                            _ => {}
+                        });
+
+                    // if matches!(
+                    //     behaviour.cmp(&"action1".to_string()),
+                    //     std::cmp::Ordering::Equal
+                    // ) {
+                    //     self.add_test_item(TestItem::Malicious(MaliciousAction::Action1));
+                    // }
                 }
             }
         }
@@ -281,11 +325,19 @@ impl Controller {
         &mut self.waiting_consensus_nodes
     }
 
+    pub fn optional_dishonest_consensus_nodes_set(&mut self) -> &mut HashSet<PeerId> {
+        &mut self.optional_dishonest_consensus_nodes
+    }
+
     pub fn remove_waiting_consensus_node(&mut self, peer_id: &PeerId) {
         println!("Remove!");
         println!("{:?}", &self.waiting_consensus_nodes);
         self.waiting_consensus_nodes.remove(peer_id);
         println!("{:?}", &self.waiting_consensus_nodes);
+    }
+
+    pub fn remove_optional_dishonest_consensus_node(&mut self, peer_id: &PeerId) {
+        self.optional_dishonest_consensus_nodes.remove(peer_id);
     }
 
     pub fn client(&self) -> Client {
@@ -420,6 +472,7 @@ impl Controller {
                 }
                 _ => {}
             }
+
             let message = Message {
                 interactive_message: InteractiveMessage::TestItem(item),
                 source: vec![],
@@ -445,8 +498,7 @@ impl Controller {
     pub fn configure_consensus_node(&mut self, configure_state: ConfigureState) {
         let message = Message {
             interactive_message: InteractiveMessage::ConfigureConsensusNode(
-                Local::now().timestamp_millis() as u64,
-                configure_state,
+                configure_state.clone(),
             ),
             source: self.id_bytes().clone(),
         };
@@ -465,11 +517,47 @@ impl Controller {
                         .behaviour_mut()
                         .unicast
                         .send_message(&peer_id, serialized_message.clone());
-                    self.optional_scalability_consensus_nodes_set().remove(&peer_id);
+                    self.optional_scalability_consensus_nodes_set()
+                        .remove(&peer_id);
                 }
+
+                let optional_consensus_nodes =
+                    self.optional_scalability_consensus_nodes_set().clone();
+                let mode = ConsensusNodeMode::Honest(configure_state);
+
+                optional_consensus_nodes
+                    .iter()
+                    .for_each(|p| self.set_consensus_node_mode(p.clone(), mode.clone()));
             }
-            TestItem::Malicious(_) => todo!(),
+            // TestItem::Malicious(MaliciousBehaviour::LeaderFeignDeath(phase, max_phase)) => {
+            //     let dishonest_node_message = Message {
+            //         interactive_message: InteractiveMessage::ConfigureConsensusNode(
+            //             configure_state,
+            //             ConsensusNodeMode::Dishonest(MaliciousMode::LeaderFeignDeath(100, *phase)),
+            //         ),
+            //         source: self.id_bytes().clone(),
+            //     };
+            //     let dis_serialized_message = coder::serialize_into_bytes(&dishonest_node_message);
+            //     let dishonest_node = self.random_select_a_consensus_node_as_dishonest();
+            //     if let Some(peer_id) = dishonest_node {
+            //         self.peer_mut()
+            //             .network_swarm_mut()
+            //             .behaviour_mut()
+            //             .unicast
+            //             .send_message(&peer_id, dis_serialized_message);
+            //     }
+
+            //     let honest_nodes = self.optional_dishonest_consensus_nodes.clone();
+            //     for peer_id in honest_nodes {
+            //         self.peer_mut()
+            //             .network_swarm_mut()
+            //             .behaviour_mut()
+            //             .unicast
+            //             .send_message(&peer_id, serialized_message.clone());
+            //     }
+            // }
             _ => {
+                self.consensus_nodes_set().clear();
                 let waiting_consensus_nodes = self.waiting_consensus_nodes.clone();
                 println!(
                     "Current Waiting Consensus Nodes: {:?}",
@@ -555,12 +643,81 @@ impl Controller {
 
                     self.next_mid_test(item, None);
                 }
-                TestItem::Crash(crash_count, _) => {
-                    let crash_peer_id = self.random_crash_a_consensus_node();
+                TestItem::Malicious(MaliciousBehaviour::LeaderFeignDeath(ref round, _)) => {
+                    let dishonest_peer_id = self.random_select_a_consensus_node_as_dishonest();
+                    let phase = if let Round::OtherRound(phase) = round {
+                        *phase
+                    } else {
+                        panic!("Round Error!");
+                    };
 
-                    if let Some(id) = crash_peer_id {
-                        let imessage = InteractiveMessage::CrashNode(crash_count, id.to_bytes());
+                    if let Some(id) = dishonest_peer_id {
+                        let mode = ConsensusNodeMode::Dishonest(MaliciousMode::LeaderFeignDeath(
+                            100, phase,
+                        ));
+                        self.feedback_dishonest_node = id.clone();
+                        self.set_consensus_node_mode(id, mode);
+
+                        let imessage = InteractiveMessage::DishonestNode(id.to_bytes());
+                        self.next_mid_test(item.clone(), Some(imessage))
+                    }
+                }
+                TestItem::Malicious(MaliciousBehaviour::LeaderSendDuplicateMessage(
+                    ref round,
+                    _,
+                )) => {
+                    let dishonest_peer_id = self.random_select_a_consensus_node_as_dishonest();
+                    let phase = if let Round::OtherRound(phase) = round {
+                        *phase
+                    } else {
+                        panic!("Round Error!");
+                    };
+
+                    if let Some(id) = dishonest_peer_id {
+                        let mode = ConsensusNodeMode::Dishonest(
+                            MaliciousMode::LeaderSendDuplicateMessages(100, phase),
+                        );
+                        self.feedback_dishonest_node = id.clone();
+                        self.set_consensus_node_mode(id, mode);
+
+                        let imessage = InteractiveMessage::DishonestNode(id.to_bytes());
+                        self.next_mid_test(item.clone(), Some(imessage))
+                    }
+                }
+                TestItem::Malicious(MaliciousBehaviour::LeaderSendAmbiguousMessage(
+                    ref round,
+                    _,
+                )) => {
+                    let dishonest_peer_id = self.random_select_a_consensus_node_as_dishonest();
+                    let phase = if let Round::OtherRound(phase) = round {
+                        *phase
+                    } else {
+                        panic!("Round Error!");
+                    };
+
+                    if let Some(id) = dishonest_peer_id {
+                        let mode = ConsensusNodeMode::Dishonest(
+                            MaliciousMode::LeaderSendAmbiguousMessage(100, phase, 10),
+                        );
+                        self.feedback_dishonest_node = id.clone();
+                        self.set_consensus_node_mode(id, mode);
+
+                        let imessage = InteractiveMessage::DishonestNode(id.to_bytes());
+                        self.next_mid_test(item.clone(), Some(imessage))
+                    }
+                }
+                TestItem::Crash(crash_count, _) => {
+                    if 0 == crash_count {
+                        let imessage = InteractiveMessage::CrashNode(crash_count, None);
                         self.next_mid_test(item.clone(), Some(imessage));
+                    } else {
+                        let crash_peer_id = self.random_crash_a_consensus_node();
+
+                        if let Some(id) = crash_peer_id {
+                            let imessage =
+                                InteractiveMessage::CrashNode(crash_count, Some(id.to_bytes()));
+                            self.next_mid_test(item.clone(), Some(imessage));
+                        }
                     }
                 }
                 _ => {}
@@ -638,7 +795,6 @@ impl Controller {
 
         println!("{:?} set mode!!!!", peer_id);
 
-        self.feedback_crash_node = peer_id.clone();
         let serialized_message = coder::serialize_into_bytes(&message);
 
         self.peer_mut()
@@ -664,6 +820,7 @@ impl Controller {
             let mode = ConsensusNodeMode::Crash(1000);
             self.set_consensus_node_mode(peer_id, mode);
             self.optional_crash_consensus_nodes_set().remove(&peer_id);
+            self.feedback_crash_node = peer_id.clone();
 
             return Some(peer_id);
         }
@@ -681,6 +838,26 @@ impl Controller {
                 .last()
                 .unwrap()
                 .clone();
+            self.optional_scalability_consensus_nodes_set()
+                .remove(&peer_id);
+            return Some(peer_id);
+        }
+    }
+
+    pub fn random_select_a_consensus_node_as_dishonest(&mut self) -> Option<PeerId> {
+        if 0 == self.optional_dishonest_consensus_nodes_set().len() {
+            eprintln!("No optional consensus node");
+            self.configure_analyzer_and_consensus_node();
+            return None;
+        } else {
+            let peer_id = self
+                .optional_dishonest_consensus_nodes_set()
+                .iter()
+                .last()
+                .unwrap()
+                .clone();
+            // self.optional_dishonest_consensus_nodes_set()
+            //     .remove(&peer_id);
             return Some(peer_id);
         }
     }
@@ -702,10 +879,10 @@ impl Controller {
         let serialized_message = coder::serialize_into_bytes(&message);
 
         let consensus_nodes = self.consensus_nodes_set().clone();
-        // println!(
-        //     "[Protocol_Start] Current Consensus Nodes: {:?}",
-        //     &consensus_nodes
-        // );
+        println!(
+            "[Protocol_Start] Current Consensus Nodes: {:?}",
+            &consensus_nodes
+        );
         for peer_id in consensus_nodes {
             self.peer_mut()
                 .network_swarm_mut()
@@ -745,6 +922,7 @@ impl Controller {
                 let analyzer_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
                 println!("\nAnalyzer is: {:?}", analyzer_id.to_string());
                 self.remove_waiting_consensus_node(&analyzer_id);
+                self.remove_optional_dishonest_consensus_node(&analyzer_id);
                 self.add_analyzer(analyzer_id);
                 println!(
                     "Current waiting consensus nodes: {:?}",
@@ -752,6 +930,7 @@ impl Controller {
                 );
             }
             InteractiveMessage::CompletedTest(test_item) => {
+                println!("##################################################");
                 println!("Complete {:?} test.", test_item.clone());
                 match test_item {
                     TestItem::Scalability(count, max, internal) => {
@@ -770,7 +949,122 @@ impl Controller {
                             self.next_mid_test_item = None;
                         }
                     }
-                    TestItem::Malicious(_) => {}
+                    TestItem::Malicious(MaliciousBehaviour::LeaderFeignDeath(round, max_phase)) => {
+                        match round {
+                            Round::FirstRound => {
+                                if max_phase > 0 {
+                                    self.next_mid_test_item = Some(TestItem::Malicious(
+                                        MaliciousBehaviour::LeaderFeignDeath(
+                                            Round::OtherRound(1),
+                                            max_phase,
+                                        ),
+                                    ));
+                                } else {
+                                    self.next_mid_test_item = None;
+                                }
+                            }
+                            Round::OtherRound(phase) => {
+                                if phase < max_phase {
+                                    self.next_mid_test_item = Some(TestItem::Malicious(
+                                        MaliciousBehaviour::LeaderFeignDeath(
+                                            Round::OtherRound(phase + 1),
+                                            max_phase,
+                                        ),
+                                    ));
+                                } else {
+                                    self.next_mid_test_item = None;
+                                }
+                            }
+                        }
+                    }
+                    TestItem::Malicious(MaliciousBehaviour::LeaderSendDuplicateMessage(
+                        round,
+                        max_phase,
+                    )) => match round {
+                        Round::FirstRound => {
+                            if max_phase > 0 {
+                                self.next_mid_test_item = Some(TestItem::Malicious(
+                                    MaliciousBehaviour::LeaderSendDuplicateMessage(
+                                        Round::OtherRound(1),
+                                        max_phase,
+                                    ),
+                                ));
+                            } else {
+                                self.next_mid_test_item = None;
+                            }
+                        }
+                        Round::OtherRound(phase) => {
+                            if phase < max_phase {
+                                self.next_mid_test_item = Some(TestItem::Malicious(
+                                    MaliciousBehaviour::LeaderSendDuplicateMessage(
+                                        Round::OtherRound(phase + 1),
+                                        max_phase,
+                                    ),
+                                ));
+                            } else {
+                                self.next_mid_test_item = None;
+                            }
+                        }
+                    },
+                    TestItem::Malicious(MaliciousBehaviour::LeaderSendAmbiguousMessage(
+                        round,
+                        max_phase,
+                    )) => match round {
+                        Round::FirstRound => {
+                            if max_phase > 0 {
+                                self.next_mid_test_item = Some(TestItem::Malicious(
+                                    MaliciousBehaviour::LeaderSendAmbiguousMessage(
+                                        Round::OtherRound(1),
+                                        max_phase,
+                                    ),
+                                ));
+                            } else {
+                                self.next_mid_test_item = None;
+                            }
+                        }
+                        Round::OtherRound(phase) => {
+                            if phase < max_phase {
+                                self.next_mid_test_item = Some(TestItem::Malicious(
+                                    MaliciousBehaviour::LeaderSendAmbiguousMessage(
+                                        Round::OtherRound(phase + 1),
+                                        max_phase,
+                                    ),
+                                ));
+                            } else {
+                                self.next_mid_test_item = None;
+                            }
+                        }
+                    },
+                    TestItem::Malicious(MaliciousBehaviour::LeaderDelaySendMessage(
+                        round,
+                        max_phase,
+                    )) => match round {
+                        Round::FirstRound => {
+                            if max_phase > 0 {
+                                self.next_mid_test_item = Some(TestItem::Malicious(
+                                    MaliciousBehaviour::LeaderDelaySendMessage(
+                                        Round::OtherRound(1),
+                                        max_phase,
+                                    ),
+                                ));
+                            } else {
+                                self.next_mid_test_item = None;
+                            }
+                        }
+                        Round::OtherRound(phase) => {
+                            if phase < max_phase {
+                                self.next_mid_test_item = Some(TestItem::Malicious(
+                                    MaliciousBehaviour::LeaderDelaySendMessage(
+                                        Round::OtherRound(phase + 1),
+                                        max_phase,
+                                    ),
+                                ));
+                            } else {
+                                self.next_mid_test_item = None;
+                            }
+                        }
+                    },
+                    TestItem::Malicious(MaliciousBehaviour::ReplicaNodeConspireForgeMessages) => {}
                     _ => {}
                 }
 
@@ -806,21 +1100,27 @@ impl Controller {
             }
             InteractiveMessage::ResetSuccess(mode) => match mode {
                 ConsensusNodeMode::Uninitialized => todo!(),
-                ConsensusNodeMode::Honest(_) => {
+                ConsensusNodeMode::Honest(_) | ConsensusNodeMode::Dishonest(_) => {
+                    // println!("99999999999999");
                     self.reset_success_count += 1;
                     self.check_reset_all_success();
                 }
-                ConsensusNodeMode::Dishonest(_) => todo!(),
                 ConsensusNodeMode::Crash(_) => {
                     self.crash_reset_success_count += 1;
                     self.crash_consensus_nodes_set().insert(peer_id);
                     self.not_crash_consensus_nodes_set().remove(&peer_id);
 
-                    println!("Consensus_nodes_set:{:?} ---------- {:?}", self.consensus_nodes_set().len(), self.crash_reset_success_count);
-                    if !(self.consensus_nodes_set().len() == self.crash_reset_success_count as usize) {
+                    println!(
+                        "Consensus_nodes_set:{:?} ---------- {:?}",
+                        self.consensus_nodes_set().len(),
+                        self.crash_reset_success_count
+                    );
+
+                    if !(self.consensus_nodes_set().len()
+                        == self.crash_reset_success_count as usize)
+                    {
                         self.check_reset_all_success();
                     } else {
-                        println!("!!!zhangbo!!!");
                         let crash_consensus_nodes_set = self.crash_consensus_nodes_set().clone();
                         crash_consensus_nodes_set.iter().for_each(|&peer_id| {
                             self.set_consensus_node_mode(peer_id, ConsensusNodeMode::Uninitialized);
@@ -833,10 +1133,10 @@ impl Controller {
                 match mode {
                     ConsensusNodeMode::Uninitialized => {
                         println!("recovery!!!");
-                    },
+                    }
                     ConsensusNodeMode::Honest(ConfigureState::First) => {
                         println!("Honest consensus node: {:?}", &peer_id);
-                        println!("{:?} subscribe consensus topoc success!", &peer_id);
+                        println!("{:?} subscribe consensus topic success!", &peer_id);
                         // self.remove_waiting_consensus_node(&peer_id);
                         self.consensus_nodes_set_insert(&peer_id);
                         self.not_crash_consensus_nodes_set_insert(&peer_id);
@@ -845,13 +1145,13 @@ impl Controller {
                     }
                     ConsensusNodeMode::Honest(ConfigureState::Other) => {
                         println!("Honest consensus node: {:?}", &peer_id);
-                        println!("{:?} subscribe consensus topoc success!", &peer_id);
+                        println!("{:?} subscribe consensus topic success!", &peer_id);
                         // self.remove_waiting_consensus_node(&peer_id);
                         self.consensus_nodes_set_insert(&peer_id);
                         self.not_crash_consensus_nodes_set_insert(&peer_id);
                         self.optional_crash_consensus_nodes_set_insert(&peer_id);
                         self.consensus_node_configure_count += 1;
-                        if self.consensus_nodes_set().len() as u16
+                        if self.waiting_consensus_nodes_set().len() as u16
                             == self.consensus_node_configure_count
                         {
                             self.consensus_node_configure_count = 0;
@@ -859,7 +1159,19 @@ impl Controller {
                             self.start_test();
                         };
                     }
-                    ConsensusNodeMode::Dishonest(_) => todo!(),
+                    ConsensusNodeMode::Dishonest(_) => {
+                        println!("Dishonest consensus node: {:?}", &peer_id);
+                        if self
+                            .feedback_dishonest_node
+                            .to_string()
+                            .eq(&peer_id.to_string())
+                        {
+                            // self.not_crash_consensus_nodes_set().remove(&peer_id);
+                            println!("protocol start success!!!");
+                            self.protocol_start();
+                            self.start_test();
+                        }
+                    }
                     ConsensusNodeMode::Crash(_) => {
                         println!("Crash consensus node: {:?}", &peer_id);
                         if self
@@ -878,8 +1190,6 @@ impl Controller {
             _ => {}
         };
     }
-
-    pub fn check_all_consensus_nodes(&mut self) {}
 
     // When you receive the feedback message that the reset of consensus nodes is successful,
     // you need to check whether all consensus nodes have been reset
@@ -979,19 +1289,20 @@ impl Controller {
 
                         for (peer, _) in list {
                             println!("Discovered {:?}", &peer);
-                            self.peer.network_swarm_mut().behaviour_mut().unicast.add_node_to_partial_view(&peer);
-                            self.peer.network_swarm_mut().behaviour_mut().gossipsub.add_explicit_peer(&peer);
-                            self.waiting_consensus_nodes_set().insert(peer);
+                            self.peer_mut().network_swarm_mut().behaviour_mut().unicast.add_node_to_partial_view(&peer);
+                            self.peer_mut().network_swarm_mut().behaviour_mut().gossipsub.add_explicit_peer(&peer);
+                            self.waiting_consensus_nodes_set().insert(peer.clone());
+                            self.optional_dishonest_consensus_nodes_set().insert(peer);
                         }
 
                     }
                     SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
 
-                        let swarm = self.peer.network_swarm_mut();
+                        // let swarm = self.peer.network_swarm_mut();
                         for (peer, _) in list {
-                            if !swarm.behaviour_mut().mdns.has_node(&peer) {
-                                swarm.behaviour_mut().unicast.remove_node_from_partial_view(&peer);
-                                swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer);
+                            if !self.peer_mut().network_swarm_mut().behaviour_mut().mdns.has_node(&peer) {
+                                self.peer_mut().network_swarm_mut().behaviour_mut().unicast.remove_node_from_partial_view(&peer);
+                                self.peer_mut().network_swarm_mut().behaviour_mut().gossipsub.remove_explicit_peer(&peer);
                             }
                         }
 

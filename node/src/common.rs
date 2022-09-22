@@ -3,9 +3,12 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use chrono::Local;
 use libp2p::PeerId;
 
-use utils::{crypto::threshold_signature::{self, TBLSKey}, coder};
+use utils::{
+    coder,
+    crypto::threshold_signature::{self, TBLSKey},
+};
 
-use super::message::{DistributeTBLSKey, CommandMessage, Command, Request};
+use super::message::{Command, CommandMessage, DistributeTBLSKey, Request};
 
 #[derive(Debug, Clone)]
 pub struct Block {
@@ -43,7 +46,7 @@ pub fn generate_bls_keys(
 
 pub fn generate_a_consensus_request_command() -> CommandMessage {
     let cmd = format!("{}{}", "wangjitao", Local::now().timestamp_subsec_nanos());
-    let request = Request { cmd };
+    let request = Request { cmd, flag: false };
 
     let message = CommandMessage {
         command: Command::MakeAConsensusRequest(request),
@@ -56,7 +59,7 @@ pub fn generate_consensus_requests_command(size: usize) -> CommandMessage {
     let mut requests = vec![];
     for _ in 0..size {
         let cmd = format!("{}{}", "wangjitao", Local::now().timestamp_subsec_nanos());
-        let request = Request { cmd };
+        let request = Request { cmd, flag: false };
         requests.push(request);
     }
 
@@ -74,7 +77,6 @@ pub fn get_request_hash(request: &Request) -> String {
 
 #[cfg(test)]
 mod node_common_tests {
-    
 
     use chrono::prelude::*;
 
@@ -90,6 +92,5 @@ mod node_common_tests {
         // let end_datetime = Local.timestamp_nanos(end);
         // let diff = end_datetime - start_datetime;
         // println!("{:?}ms", diff.num_milliseconds());
-
     }
 }

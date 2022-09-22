@@ -8,7 +8,7 @@ use node::{
     analyzer::analyzer::Analyzer,
     basic_consensus_node::ConsensusNode,
     controller::controller::Controller,
-    example_consensus_node::{test_log::TestLog, test_state::TestState},
+    example_consensus_node::{test_log::TestLog, test_state::TestState, test_protocol::TestProtocol},
 };
 use utils::parse::into_ip4_tcp_multiaddr;
 
@@ -46,7 +46,7 @@ impl BFTDiagnosisFramework {
 
             let bft_diagnosis_config = read_bft_diagnosis_config();
 
-            // println!("youqu:{:#?}", &bft_diagnosis_config);
+            println!("youqu:{:#?}", &bft_diagnosis_config);
 
             node.configure(bft_diagnosis_config);
 
@@ -79,7 +79,8 @@ impl BFTDiagnosisFramework {
                 .unwrap()
                 .performance_internal
                 .unwrap();
-            let crash_test_duration = analyzer_config.execution.unwrap().crash_duration.unwrap();
+            let crash_test_duration = analyzer_config.clone().execution.unwrap().crash_duration.unwrap();
+            let malicious_test_duration = analyzer_config.execution.unwrap().malicious_duration.unwrap();
 
             let swarm_addr = into_ip4_tcp_multiaddr(analyzer_ip_addr.as_str(), analyzer_ip_port);
             let local_peer = Peer::new(swarm_addr);
@@ -91,6 +92,7 @@ impl BFTDiagnosisFramework {
                 performance_test_duration,
                 performance_test_internal,
                 crash_test_duration,
+                malicious_test_duration,
             );
 
             let args_sender = node.args_sender();
@@ -117,7 +119,7 @@ impl BFTDiagnosisFramework {
                     local_peer.id
                 );
 
-                let mut node: ConsensusNode<TestLog, TestState> =
+                let mut node: ConsensusNode<TestLog, TestState, TestProtocol> =
                     ConsensusNode::new(local_peer, msg[0]);
                 self.client.consensus_run();
                 node.network_start().await?;

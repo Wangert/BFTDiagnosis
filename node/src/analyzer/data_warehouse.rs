@@ -1,8 +1,7 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 use chrono::Local;
 use libp2p::PeerId;
-
 
 use crate::{
     common::get_request_hash,
@@ -456,7 +455,7 @@ impl DataWarehouse {
 pub mod data_warehouse_test {
     use core::time;
 
-    use chrono::{Local};
+    use chrono::Local;
     use libp2p::PeerId;
 
     use crate::message::{ConsensusEndData, ConsensusStartData, Request};
@@ -473,12 +472,15 @@ pub mod data_warehouse_test {
 
         let request_1 = Request {
             cmd: "request_1".to_string(),
+            flag: false,
         };
         let request_2 = Request {
             cmd: "request_2".to_string(),
+            flag: false,
         };
         let request_3 = Request {
             cmd: "request_3".to_string(),
+            flag: false,
         };
 
         let consensus_start_data_11 = ConsensusStartData {

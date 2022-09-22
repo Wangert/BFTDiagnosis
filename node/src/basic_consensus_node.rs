@@ -2,12 +2,13 @@ use std::{collections::HashMap, error::Error, sync::Arc, time::Duration};
 
 use crate::{
     behaviour::{
-        ConsensusEnd, ConsensusNodeBehaviour, NodeStateUpdateBehaviour, ProtocolLogsReadBehaviour,
+        ConsensusNodeBehaviour, NodeStateUpdateBehaviour, PhaseState, ProtocolLogsReadBehaviour,
+        SendType,
     },
     common::get_request_hash,
     message::{
         Component, ConsensusData, ConsensusDataMessage, ConsensusEndData, ConsensusStartData,
-        InteractiveMessage, MaliciousAction, Message, Request,
+        InteractiveMessage, Message, Request,
     },
 };
 
@@ -31,10 +32,11 @@ use tokio::{
 };
 use utils::coder::{self};
 
-pub struct ConsensusNode<TLog, TState>
+pub struct ConsensusNode<TLog, TState, TProtocol>
 where
     TLog: Default + ProtocolLogsReadBehaviour,
     TState: Default + NodeStateUpdateBehaviour,
+    TProtocol: Default + ConsensusNodeBehaviour,
 {
     peer: Peer,
     controller_id: Option<PeerId>,
@@ -43,6 +45,7 @@ where
     request_buffer: HashMap<String, Request>,
     log: TLog,
     state: TState,
+    protocol: TProtocol,
 
     // notifier
     consensus_notify: Arc<Notify>,
@@ -54,10 +57,11 @@ where
     mode: ConsensusNodeMode,
 }
 
-impl<TLog, TState> ConsensusNode<TLog, TState>
+impl<TLog, TState, TProtocol> ConsensusNode<TLog, TState, TProtocol>
 where
     TLog: Default + ProtocolLogsReadBehaviour,
     TState: Default + NodeStateUpdateBehaviour,
+    TProtocol: Default + ConsensusNodeBehaviour,
 {
     pub fn new(peer: Peer, port: &str) -> Self {
         // let db_path = format!("./storage/data/{}_public_keys", port);
@@ -68,6 +72,7 @@ where
             request_buffer: HashMap::new(),
             log: TLog::default(),
             state: TState::default(),
+            protocol: TProtocol::default(),
             consensus_notify: Arc::new(Notify::new()),
             view_timeout_notify: Arc::new(Notify::new()),
             protocol_stop_notify: Arc::new(Notify::new()),
@@ -122,6 +127,10 @@ where
 
     pub fn state_mut(&mut self) -> &mut TState {
         &mut self.state
+    }
+
+    pub fn protocol_mut(&mut self) -> &mut TProtocol {
+        &mut self.protocol
     }
 
     pub fn peer_id(&self) -> &PeerId {
@@ -196,7 +205,9 @@ where
             ConsensusNodeMode::Honest(_) => {
                 println!("I'm a honest consensus node!");
             }
-            ConsensusNodeMode::Dishonest(_) => {}
+            ConsensusNodeMode::Dishonest(m) => {
+                println!("I'm a dishonest consensus node! [{:?}]", m);
+            }
             ConsensusNodeMode::Crash(internal) => {
                 println!("I'm a crash consensus node in future!");
                 self.crash_timer_start(internal);
@@ -257,7 +268,8 @@ where
 
     pub async fn no_running_controller_message_handler(&mut self, message: Message) {
         match message.interactive_message {
-            InteractiveMessage::ConfigureConsensusNode(_, state) => {
+            InteractiveMessage::ConfigureConsensusNode(state) => {
+
                 let topic = IdentTopic::new("Consensus");
                 if let Err(e) = self
                     .peer_mut()
@@ -270,6 +282,8 @@ where
                 };
 
                 self.set_mode(ConsensusNodeMode::Honest(state));
+
+                // println!("Honest Mode!!!!{:?}", self.mode());
 
                 let interactive_message = InteractiveMessage::ConsensusNodeModeSuccess(self.mode());
                 let message = Message {
@@ -286,6 +300,7 @@ where
                     .send_message(&controller_id, serialized_message);
             }
             InteractiveMessage::ProtocolStart(_) => {
+                println!("######################################");
                 println!("Protocol Start!!!");
                 self.verify_initialization();
                 self.message_handler_start().await;
@@ -404,6 +419,96 @@ where
         }
     }
 
+    pub fn send_message(&mut self, send_type: SendType) {
+        match send_type {
+            SendType::Broadcast(msg) => {
+                let topic = IdentTopic::new("Consensus");
+                if let Err(e) = self
+                    .peer_mut()
+                    .network_swarm_mut()
+                    .behaviour_mut()
+                    .gossipsub
+                    .publish(topic, msg)
+                {
+                    eprintln!("Publish message error:{:?}", e);
+                }
+            },
+            SendType::Unicast(receiver, msg) => {
+                self.peer_mut()
+                    .network_swarm_mut()
+                    .behaviour_mut()
+                    .unicast
+                    .send_message(&receiver, msg);
+            },
+        }
+    }
+
+    pub fn malicious_trigger(&mut self, phase: u8, send_type: SendType) {
+        match self.mode() {
+            ConsensusNodeMode::Dishonest(MaliciousMode::LeaderFeignDeath(_, p)) => {
+                if phase == p {
+
+                }
+            },
+            ConsensusNodeMode::Dishonest(MaliciousMode::LeaderSendDuplicateMessages(_, p)) => {
+                if phase == p {
+                    self.send_message(send_type);
+                }
+            }
+            ConsensusNodeMode::Dishonest(MaliciousMode::LeaderSendAmbiguousMessage(_, p, _)) => {
+                if phase == p {
+
+                }
+            }
+            ConsensusNodeMode::Dishonest(MaliciousMode::LeaderDelaySendMessage(_, p)) => {
+                if phase == p {
+
+                }
+            },
+            ConsensusNodeMode::Dishonest(MaliciousMode::ReplicaNodeConspireForgeMessages(_, p)) => {
+                if phase == p {
+
+                }
+            }
+            _ => {},
+        }
+    }
+
+    pub fn check_protocol_phase_state(&mut self, phase_state: PhaseState) {
+        match phase_state {
+            PhaseState::Over(request) => {
+                let consensus_end_data = ConsensusEndData {
+                    request,
+                    completed_time: Local::now().timestamp_millis(),
+                };
+                let data = ConsensusData::ConsensusEndData(consensus_end_data);
+                let consensus_data_message = ConsensusDataMessage { data };
+
+                let serialized_consensus_data_message =
+                    coder::serialize_into_bytes(&consensus_data_message);
+
+                let analysis_node_id = self.analyzer_id();
+                self.peer_mut()
+                    .network_swarm_mut()
+                    .behaviour_mut()
+                    .unicast
+                    .send_message(&analysis_node_id, serialized_consensus_data_message);
+            }
+            PhaseState::ContinueExecute(SendType::Broadcast(msg)) => {
+                let phase = self.protocol_mut().get_current_phase(&msg[..]);
+                let send_type = SendType::Broadcast(msg);
+                self.malicious_trigger(phase, send_type.clone());
+                self.send_message(send_type);
+            }
+            PhaseState::ContinueExecute(SendType::Unicast(r, msg)) => {
+                let phase = self.protocol_mut().get_current_phase(&msg[..]);
+                let send_type = SendType::Unicast(r, msg);
+                self.malicious_trigger(phase, send_type.clone());
+                self.send_message(send_type);
+            }
+        }
+    }
+
     pub async fn message_handler_start(&mut self) {
         let consensus_notify = self.consensus_notify();
         let view_timeout_notify = self.view_timeout_notify();
@@ -452,10 +557,11 @@ where
                     let analyzer_id = self.analyzer_id();
                     self.peer_mut().network_swarm_mut().behaviour_mut().unicast.send_message(&analyzer_id, serialized_consensus_data);
                     // handle request
-                    self.consensus_protocol_message_handler(&serialized_request_message);
+                    let phase_state = self.protocol_mut().consensus_protocol_message_handler(&serialized_request_message);
+                    self.check_protocol_phase_state(phase_state);
                 },
                 _ = view_timeout_notify.notified() => {
-                    self.view_timeout_handler();
+                    self.protocol_mut().view_timeout_handler();
                 },
                 event = self.peer_mut().network_swarm_mut().select_next_some() => match event {
                     SwarmEvent::Behaviour(OutEvent::Unicast(UnicastEvent::Message(message))) => {
@@ -465,7 +571,8 @@ where
                             let message: Message = coder::deserialize_for_bytes(&message.data);
                             self.running_controller_message_handler(message);
                         } else {
-                            self.consensus_protocol_message_handler(&message.data);
+                            let phase_state = self.protocol_mut().consensus_protocol_message_handler(&message.data);
+                            self.check_protocol_phase_state(phase_state);
                         };
                     }
                     SwarmEvent::Behaviour(OutEvent::Gossipsub(GossipsubEvent::Message {
@@ -473,12 +580,8 @@ where
                         message_id: _id,
                         message,
                     })) => {
-                        let is_end = self.consensus_protocol_message_handler(&message.data);
-                        if let ConsensusEnd::Yes(request) = is_end {
-                            let consensus_end_data = ConsensusEndData { request, completed_time: Local::now().timestamp_millis() };
-                            let data = ConsensusData::ConsensusEndData(consensus_end_data);
-                            self.push_consensus_data_to_analysis_node(&data);
-                        }
+                        let phase_state = self.protocol_mut().consensus_protocol_message_handler(&message.data);
+                        self.check_protocol_phase_state(phase_state);
                     }
                     _ => {
                         println!("Default!");
@@ -489,12 +592,26 @@ where
     }
 }
 
+pub type TriggerTimeInterval = u64;
+pub type ProtocolPhase = u8;
+pub type NumberOfAmbiguousMessage = u16;
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub enum ConsensusNodeMode {
     Uninitialized,
     Honest(ConfigureState),
-    Dishonest(MaliciousAction),
-    Crash(u64),
+    Dishonest(MaliciousMode),
+    Crash(TriggerTimeInterval),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub enum MaliciousMode {
+    LeaderFeignDeath(TriggerTimeInterval, ProtocolPhase),
+    LeaderSendAmbiguousMessage(TriggerTimeInterval, ProtocolPhase, NumberOfAmbiguousMessage),
+    LeaderDelaySendMessage(TriggerTimeInterval, ProtocolPhase),
+    LeaderSendDuplicateMessages(TriggerTimeInterval, ProtocolPhase),
+
+    ReplicaNodeConspireForgeMessages(TriggerTimeInterval, ProtocolPhase),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
