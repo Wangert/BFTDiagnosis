@@ -18,3 +18,5 @@ storage = { path = "../storage" }
 cli = { path = "../cli" }
 
 clap = "3.1.7"
+toml = "0.5.9"
+lazy_static = "1.4.0"

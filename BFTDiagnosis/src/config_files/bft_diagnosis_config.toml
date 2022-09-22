@@ -16,5 +16,17 @@ enable = true
 max = 2
 
 [malicious]
-enable = false
-behaviour = "action1"
+enable = true
+number_of_phase = 2
+# optional behaviours:
+# LeaderFeignDeath
+# LeaderSendAmbiguousMessage
+# LeaderDelaySendMessage
+# ReplicaNodeConspireForgeMessages
+behaviours = [
+    "LeaderFeignDeath", 
+    # "LeaderSendAmbiguousMessage", 
+    # "LeaderDelaySendMessage",
+    "LeaderSendDuplicateMessage", 
+    # "ReplicaNodeConspireForgeMessages"
+    ]

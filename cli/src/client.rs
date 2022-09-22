@@ -1,8 +1,7 @@
-use clap::{ArgMatches};
+use clap::ArgMatches;
 use tokio::sync::mpsc::Sender;
 
-
-use crate::cmd::{get_command_completer};
+use crate::cmd::get_command_completer;
 use crate::commons::CommandCompleter;
 use log::error;
 use rustyline::completion::{Completer, Pair};
@@ -14,9 +13,6 @@ use rustyline::{validate, CompletionType, Config, Context, Editor, OutputStreamT
 use rustyline_derive::Helper;
 use shellwords::split;
 use std::borrow::Cow::{self, Borrowed, Owned};
-
-
-
 
 #[derive(Debug, Clone)]
 pub enum ClientType {
@@ -98,10 +94,11 @@ pub async fn run(args_sender: Sender<Vec<String>>, client_type: ClientType) {
 
     // if rl.load_history("/tmp/history").is_err() {
 
-        println!("============================================================================================================");
-        println!("************************************************************************************************************");
-        println!("                                                                                                            ");
-        println!("
+    println!("============================================================================================================");
+    println!("************************************************************************************************************");
+    println!("                                                                                                            ");
+    println!(
+        "
         
         __        __   _                            _                         
         \\ \\      / /__| | ___ ___  _ __ ___   ___  | |_ ___    _   _ ___  ___ 
@@ -116,23 +113,22 @@ pub async fn run(args_sender: Sender<Vec<String>>, client_type: ClientType) {
         |____/|_|     |_| |____/|_|\\__,_|\\__, |_| |_|\\___/|___/_|___/         
                                          |___/                               
         
-        ");
-        println!("BFTDiagnosis Tool(version 1.0):");
-        println!("<<A general testing framework for semi-synchronous BFT protocol>>");
-        println!("                                                                                                           ");
-        println!("                                                                     Developers: Jitao Wang & Bo Zhang");
-        println!("                                                                     Laboratory: DasLab of Fudan University");
-        println!("                                                                                                           ");
-        println!("***********************************************************************************************************");
-        println!("===========================================================================================================");
+        "
+    );
+    println!("BFTDiagnosis Tool(version 1.0):");
+    println!("<<A general testing framework for semi-synchronous BFT protocol>>");
+    println!("                                                                                                           ");
+    println!("                                                                     Developers: Jitao Wang & Bo Zhang");
+    println!("                                                                     Laboratory: DasLab of Fudan University");
+    println!("                                                                                                           ");
+    println!("***********************************************************************************************************");
+    println!("===========================================================================================================");
     // }
 
     loop {
         let mut p = "BFTDiagnosis(Controller)>> ".to_string();
         match client_type {
-            ClientType::Analyzer => {
-                p = "BFTDiagnosis(Analyzer)>> ".to_string()
-            }
+            ClientType::Analyzer => p = "BFTDiagnosis(Analyzer)>> ".to_string(),
             _ => {}
         }
         // let p = format!("{}>> ", "BFTDiagnosis");

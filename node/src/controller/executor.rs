@@ -5,10 +5,7 @@ use tokio::sync::{
     mpsc::{self, Receiver, Sender},
     Notify,
 };
-use utils::{
-    crypto::eddsa::{EdDSAKeyPair, EdDSAPublicKey},
-};
-
+use utils::crypto::eddsa::{EdDSAKeyPair, EdDSAPublicKey};
 
 // Controller node executor
 pub struct Executor {
