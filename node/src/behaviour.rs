@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, collections::HashMap};
 
 use libp2p::PeerId;
 use network::peer::Peer;
@@ -28,6 +28,13 @@ pub trait ConsensusNodeBehaviour {
     // push process datas to the Analysis Node.
     fn push_consensus_data_to_analysis_node(&mut self, _: &ConsensusData);
 
+    fn protocol_phases(&mut self) -> HashMap<u8, Vec<u8>> {
+        println!("No security test interface is implemented！");
+        HashMap::new()
+    }
+
+    fn current_request(&self) -> Request;
+
 }
 
 type MessageBytes = Vec<u8>;
@@ -42,6 +49,7 @@ pub enum PhaseState {
 pub enum SendType {
     Broadcast(MessageBytes),
     Unicast(PeerId, MessageBytes),
+    AmbiguousBroadcast(MessageBytes, MessageBytes, u16),
 }
 
 // pub trait  {

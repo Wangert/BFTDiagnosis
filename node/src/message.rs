@@ -52,6 +52,9 @@ pub enum InteractiveMessage {
     JoinConsensus(u64),
     JoinConsensusSuccess,
 
+    MaliciousTestPreparation,
+    ConsensusPhase(u8, Vec<u8>),
+
     ConfigureConsensusNode(ConfigureState),
     ConfigureConsensusNodeSuccess(ConfigureState),
 
@@ -61,6 +64,11 @@ pub enum InteractiveMessage {
     ProtocolStart(u64),
     Reset(u64),
     ResetSuccess(ConsensusNodeMode),
+
+    // Make a consensus request
+    MakeAConsensusRequest(Request),
+    // Make a set of consensus requests
+    MakeConsensusRequests(Vec<Request>),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -91,11 +99,11 @@ pub enum TestItem {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum MaliciousBehaviour {
     LeaderFeignDeath(Round, u8),
-    LeaderSendAmbiguousMessage(Round, u8),
+    LeaderSendAmbiguousMessage(Round, u8, Vec<String>, u16),
     LeaderDelaySendMessage(Round, u8),
     LeaderSendDuplicateMessage(Round, u8),
 
-    ReplicaNodeConspireForgeMessages,
+    ReplicaNodeConspireForgeMessages(Round, u8, Vec<String>, u16),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
@@ -104,10 +112,11 @@ pub enum Round {
     OtherRound(u8),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct Request {
     pub cmd: String,
     pub flag: bool,
+    pub timestamp: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

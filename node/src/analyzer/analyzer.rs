@@ -276,7 +276,7 @@ impl Analyzer {
     pub fn compute_and_analyse(&mut self) {
         if let Some(test_item) = self.current_test_item() {
             let data_warehouse = self.data_warehouse_mut();
-            match test_item {
+            match test_item.clone() {
                 TestItem::Throughput => {
                     data_warehouse.compute_throughput();
                 }
@@ -294,6 +294,7 @@ impl Analyzer {
                     data_warehouse.test_crash(count);
                 }
                 TestItem::Malicious(m) => {
+                    data_warehouse.test_malicious(test_item);
                     println!("MaliciousBehaviour Test: {:?}", m);
                 }
             }

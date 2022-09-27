@@ -41,6 +41,14 @@ pub fn configure_consensus_node_cmd() -> Command<'static> {
         .about("configureConsensusNode")
 }
 
+pub fn query_protocol_phases_cmd() -> Command<'static> {
+    clap::Command::new("queryProtocolPhases").about("queryProtocolPhases")
+}
+
+pub fn print_protocol_phases_cmd() -> Command<'static> {
+    clap::Command::new("printProtocolPhases").about("printProtocolPhases")
+}
+
 pub fn protocol_start_cmd() -> Command<'static> {
     clap::Command::new("protocolStart")
         .about("protocolStart")

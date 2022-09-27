@@ -43,6 +43,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, Clone)]
 pub struct ControllerConfig {
     pub network: Option<Network>,
+    pub extra: Option<Extra>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -63,6 +64,11 @@ pub struct Execution {
     pub performance_internal: Option<u64>,
     pub crash_duration: Option<u64>,
     pub malicious_duration: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Extra {
+    pub conspire_request_send_duration: Option<u64>,
 }
 
 pub fn read_controller_config() -> ControllerConfig {
@@ -116,7 +122,7 @@ pub fn read_bft_diagnosis_config() -> BFTDiagnosisConfig {
 
     let bft_diagnosis_conifg: BFTDiagnosisConfig = toml::from_str(&str_val).unwrap();
 
-    println!("{:#?}", &bft_diagnosis_conifg);
+    // println!("{:#?}", &bft_diagnosis_conifg);
     bft_diagnosis_conifg
 
     

@@ -45,8 +45,9 @@ pub fn generate_bls_keys(
 }
 
 pub fn generate_a_consensus_request_command() -> CommandMessage {
-    let cmd = format!("{}{}", "wangjitao", Local::now().timestamp_subsec_nanos());
-    let request = Request { cmd, flag: false };
+    let timestamp = Local::now().timestamp_millis();
+    let cmd = format!("{}{}", "wangjitao", timestamp);
+    let request = Request { cmd, flag: false, timestamp};
 
     let message = CommandMessage {
         command: Command::MakeAConsensusRequest(request),
@@ -58,8 +59,9 @@ pub fn generate_a_consensus_request_command() -> CommandMessage {
 pub fn generate_consensus_requests_command(size: usize) -> CommandMessage {
     let mut requests = vec![];
     for _ in 0..size {
-        let cmd = format!("{}{}", "wangjitao", Local::now().timestamp_subsec_nanos());
-        let request = Request { cmd, flag: false };
+        let timestamp = Local::now().timestamp_millis();
+        let cmd = format!("{}{}", "wangjitao", timestamp);
+        let request = Request { cmd, flag: false, timestamp };
         requests.push(request);
     }
 

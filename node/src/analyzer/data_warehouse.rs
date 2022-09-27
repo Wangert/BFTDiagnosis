@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::Hash};
 
 use chrono::Local;
 use libp2p::PeerId;
+use network::peer::Peer;
 
 use crate::{
     common::get_request_hash,
-    message::{ConsensusEndData, ConsensusStartData, Request},
+    message::{ConsensusEndData, ConsensusStartData, Request, TestItem},
 };
 
 #[derive(Debug, Clone)]
@@ -13,29 +14,38 @@ use crate::{
 pub struct DataWarehouse {
     test_start_time: i64,
 
-    t_start_data: HashMap<(PeerId, String), ConsensusStartData>,
+    // Throughput test data
+    t_start_data: HashMap<String, ConsensusStartData>,
     t_end_data: HashMap<(PeerId, String), ConsensusEndData>,
-    t_start_data_computing: HashMap<(PeerId, String), ConsensusStartData>,
+    t_start_data_computing: HashMap<String, ConsensusStartData>,
     t_end_data_computing: HashMap<(PeerId, String), ConsensusEndData>,
-
-    l_start_data: HashMap<(PeerId, String), ConsensusStartData>,
-    l_end_data: HashMap<(PeerId, String), ConsensusEndData>,
-    l_start_data_computing: HashMap<(PeerId, String), ConsensusStartData>,
-    l_end_data_computing: HashMap<(PeerId, String), ConsensusEndData>,
-
-    c_start_data: HashMap<(PeerId, String), ConsensusStartData>,
-    c_end_data: HashMap<(PeerId, String), ConsensusEndData>,
-
+    // Throughput results
     throughput_mid_results: HashMap<PeerId, u64>,
-    throughput_results: HashMap<PeerId, u64>,
+    throughput_results: HashMap<u64, (PeerId, u64)>,
+
+    // Latency test data
+    l_start_data: HashMap<String, ConsensusStartData>,
+    l_end_data: HashMap<(PeerId, String), ConsensusEndData>,
+    l_start_data_computing: HashMap<String, ConsensusStartData>,
+    l_end_data_computing: HashMap<(PeerId, String), ConsensusEndData>,
+    // Latency results
     latency_results: HashMap<PeerId, Vec<LatencyResult>>,
 
+    // Scalability results
     scalability_mid_throughputs: HashMap<PeerId, u64>,
     scalability_mid_latencies: HashMap<PeerId, Vec<LatencyResult>>,
     scalability_results: HashMap<u16, HashMap<PeerId, ScalabilityResult>>,
 
+    // security test data
+    s_start_data: HashMap<String, ConsensusStartData>,
+    s_end_data: HashMap<(PeerId, String), ConsensusEndData>,
+
+    // Crash results
     crash_nodes: HashMap<u16, Vec<PeerId>>,
-    crash_results: HashMap<u16, HashMap<PeerId, Vec<CrashResult>>>,
+    crash_results: HashMap<u16, HashMap<PeerId, SecurityResult>>,
+    // Malicious results
+    malicious_results: HashMap<TestItem, HashMap<PeerId, SecurityResult>>
+
 }
 
 // Latency result
@@ -54,10 +64,7 @@ pub struct ScalabilityResult {
 
 // Crash result
 #[derive(Debug, Clone)]
-pub struct CrashResult {
-    pub request_cmd: String,
-    pub timestamp: u64,
-}
+pub struct SecurityResult(Vec<Request>);
 
 impl DataWarehouse {
     pub fn new() -> Self {
@@ -71,8 +78,8 @@ impl DataWarehouse {
             l_end_data: HashMap::new(),
             l_start_data_computing: HashMap::new(),
             l_end_data_computing: HashMap::new(),
-            c_start_data: HashMap::new(),
-            c_end_data: HashMap::new(),
+            s_start_data: HashMap::new(),
+            s_end_data: HashMap::new(),
             throughput_mid_results: HashMap::new(),
             throughput_results: HashMap::new(),
             latency_results: HashMap::new(),
@@ -81,13 +88,14 @@ impl DataWarehouse {
             scalability_results: HashMap::new(),
             crash_nodes: HashMap::new(),
             crash_results: HashMap::new(),
+            malicious_results: HashMap::new(),
         }
     }
 
     pub fn print_throughput_results(&self) {
         println!("\n【Throughput Results】:");
-        for (peer_id, throughput) in &self.throughput_results {
-            println!("{:?} ==> {}", peer_id, throughput);
+        for (index, result) in &self.throughput_results {
+            println!("【{:?}】 ==> {:?}", index, result);
         }
     }
 
@@ -130,9 +138,9 @@ impl DataWarehouse {
     pub fn store_consensus_start_data(&mut self, origin_peer_id: PeerId, data: ConsensusStartData) {
         let request_hash = get_request_hash(&data.request);
         self.t_start_data
-            .insert((origin_peer_id, request_hash.clone()), data.clone());
+            .insert(request_hash.clone(), data.clone());
         self.l_start_data
-            .insert((origin_peer_id, request_hash), data);
+            .insert(request_hash, data);
     }
 
     pub fn store_consensus_end_data(&mut self, origin_peer_id: PeerId, data: ConsensusEndData) {
@@ -164,23 +172,23 @@ impl DataWarehouse {
 
         // let current_time = 30;
 
-        let data_computing = self.t_start_data_computing.clone();
+        let data_computing = self.t_end_data_computing.clone();
         data_computing.iter().for_each(|(k, _)| {
-            if let Some(_) = self.t_end_data_computing.get(k) {
+            if let Some(_) = self.t_start_data_computing.get(&k.1) {
                 self.update_request_count_with_peer(k.0);
 
-                self.t_start_data_computing.remove(k);
                 self.t_end_data_computing.remove(k);
             }
         });
 
+        let index = self.throughput_results.len() as u64;
         self.throughput_results = self
             .throughput_mid_results
             .iter()
             .map(|(&peer_id, &count)| {
                 let throughput =
                     (count as f64 / 0.001 * (current_time - self.test_start_time) as f64) as u64;
-                (peer_id, throughput)
+                (index, (peer_id, throughput))
             })
             .collect();
 
@@ -199,20 +207,19 @@ impl DataWarehouse {
     pub fn compute_latency(&mut self) {
         self.prepare_compute_latency();
 
-        let data_computing = self.l_start_data_computing.clone();
-        data_computing.iter().for_each(|(k, start_data)| {
-            if let Some(end_data) = self.l_end_data_computing.get(k) {
+        let data_computing = self.l_end_data_computing.clone();
+        data_computing.iter().for_each(|(k, end_data)| {
+            if let Some(start_data) = self.l_start_data_computing.get(&k.1) {
                 let latency = (end_data.completed_time - start_data.start_time) as u64;
                 let latency_result = LatencyResult {
                     request: start_data.request.clone(),
                     latency,
                 };
                 self.store_latency_result(k.0, latency_result);
-                self.l_start_data_computing.remove(k);
                 self.l_end_data_computing.remove(k);
             } else {
                 let latency_result = LatencyResult {
-                    request: start_data.request.clone(),
+                    request: end_data.request.clone(),
                     latency: 0,
                 };
                 self.store_latency_result(k.0, latency_result);
@@ -237,12 +244,11 @@ impl DataWarehouse {
 
         // let current_time = 30;
 
-        let data_computing = self.t_start_data_computing.clone();
+        let data_computing = self.t_end_data_computing.clone();
         data_computing.iter().for_each(|(k, _)| {
-            if let Some(_) = self.t_end_data_computing.get(k) {
+            if let Some(_) = self.t_start_data_computing.get(&k.1) {
                 self.update_request_count_with_peer(k.0);
 
-                self.t_start_data_computing.remove(k);
                 self.t_end_data_computing.remove(k);
             }
         });
@@ -272,20 +278,19 @@ impl DataWarehouse {
     fn compute_scalability_latency(&mut self) {
         self.prepare_compute_latency();
 
-        let data_computing = self.l_start_data_computing.clone();
-        data_computing.iter().for_each(|(k, start_data)| {
-            if let Some(end_data) = self.l_end_data_computing.get(k) {
+        let data_computing = self.l_end_data_computing.clone();
+        data_computing.iter().for_each(|(k, end_data)| {
+            if let Some(start_data) = self.l_start_data_computing.get(&k.1) {
                 let latency = (end_data.completed_time - start_data.start_time) as u64;
                 let latency_result = LatencyResult {
                     request: start_data.request.clone(),
                     latency,
                 };
                 self.record_scalability_mid_latency(k.0, latency_result);
-                self.l_start_data_computing.remove(k);
                 self.l_end_data_computing.remove(k);
             } else {
                 let latency_result = LatencyResult {
-                    request: start_data.request.clone(),
+                    request: end_data.request.clone(),
                     latency: 0,
                 };
                 self.record_scalability_mid_latency(k.0, latency_result);
@@ -350,61 +355,63 @@ impl DataWarehouse {
     pub fn test_crash(&mut self, crash_count: u16) {
         let mut crash_results = self.crash_results(crash_count);
 
-        let data = self.c_start_data.clone();
-        data.iter().for_each(|(k, start_data)| {
-            if let Some(end_data) = self.c_end_data.get(k) {
-                let crash_result = CrashResult {
-                    request_cmd: end_data.request.cmd.clone(),
-                    timestamp: end_data.completed_time as u64,
-                };
-                DataWarehouse::store_crash_result(&mut crash_results, &k.0, crash_result);
-                self.c_start_data.remove(k);
-                self.c_end_data.remove(k);
+        let data = self.s_end_data.clone();
+        data.iter().for_each(|(k, end_data)| {
+            if let Some(start_data) = self.s_start_data.get(&k.1) {
+                // let crash_result = CrashResult {
+                //     request_cmd: end_data.request.cmd.clone(),
+                //     timestamp: end_data.completed_time as u64,
+                // };
+                DataWarehouse::store_crash_result(&mut crash_results, &k.0, end_data.request.clone());
+                self.s_end_data.remove(k);
             } else {
-                let crash_result = CrashResult {
-                    request_cmd: start_data.request.cmd.clone(),
-                    timestamp: 0,
-                };
-                DataWarehouse::store_crash_result(&mut crash_results, &k.0, crash_result);
-                self.c_start_data.remove(k);
+                // let crash_result = CrashResult {
+                //     request_cmd: end_data.request.cmd.clone(),
+                //     timestamp: 0,
+                // };
+                // DataWarehouse::store_crash_result(&mut crash_results, &k.0, crash_result);
             };
         });
 
-        let c_end_data_clone = self.c_end_data.clone();
-        let c_end_data_clone_iter = c_end_data_clone.iter();
-        let c_end_data = &mut self.c_end_data;
-        c_end_data_clone_iter.for_each(|(k, v)| {
-            let crash_result = CrashResult {
-                request_cmd: v.request.cmd.clone(),
-                timestamp: v.completed_time as u64,
-            };
-            DataWarehouse::store_crash_result(&mut crash_results, &k.0, crash_result);
-            c_end_data.remove(k);
-        });
+        // let c_end_data_clone = self.c_end_data.clone();
+        // let c_end_data_clone_iter = c_end_data_clone.iter();
+        // let c_end_data = &mut self.c_end_data;
+        // c_end_data_clone_iter.for_each(|(k, v)| {
+        //     let crash_result = CrashResult {
+        //         request_cmd: v.request.cmd.clone(),
+        //         timestamp: v.completed_time as u64,
+        //     };
+        //     DataWarehouse::store_crash_result(&mut crash_results, &k.0, crash_result);
+        //     c_end_data.remove(k);
+        // });
 
         self.crash_results.insert(crash_count, crash_results);
     }
 
-    pub fn crash_results(&mut self, crash_count: u16) -> HashMap<PeerId, Vec<CrashResult>> {
+    pub fn crash_results(&mut self, crash_count: u16) -> HashMap<PeerId, SecurityResult> {
         if let Some(crash_resuls) = self.crash_results.get(&crash_count) {
             crash_resuls.clone()
         } else {
-            let crash_results: HashMap<PeerId, Vec<CrashResult>> = HashMap::new();
+            let crash_results: HashMap<PeerId, SecurityResult> = HashMap::new();
             self.crash_results.insert(crash_count, crash_results);
             self.crash_results.get(&crash_count).unwrap().clone()
         }
     }
 
+    pub fn test_malicious(&mut self, test_item: TestItem) {
+        
+    }
+
     pub fn store_crash_result(
-        crash_results: &mut HashMap<PeerId, Vec<CrashResult>>,
+        crash_results: &mut HashMap<PeerId, SecurityResult>,
         peer_id: &PeerId,
-        crash_result: CrashResult,
+        crash_result: Request,
     ) {
         if let Some(crash_result_vec) = crash_results.get_mut(&peer_id) {
-            crash_result_vec.push(crash_result);
+            crash_result_vec.0.push(crash_result);
         } else {
-            let new_vec = vec![crash_result];
-            crash_results.insert(*peer_id, new_vec);
+            let r = SecurityResult(vec![crash_result]);
+            crash_results.insert(*peer_id, r);
         }
     }
 
@@ -473,14 +480,17 @@ pub mod data_warehouse_test {
         let request_1 = Request {
             cmd: "request_1".to_string(),
             flag: false,
+            timestamp: Local::now().timestamp_millis(),
         };
         let request_2 = Request {
             cmd: "request_2".to_string(),
             flag: false,
+            timestamp: Local::now().timestamp_millis(),
         };
         let request_3 = Request {
             cmd: "request_3".to_string(),
             flag: false,
+            timestamp: Local::now().timestamp_millis(),
         };
 
         let consensus_start_data_11 = ConsensusStartData {

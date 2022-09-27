@@ -8,7 +8,9 @@ use node::{
     analyzer::analyzer::Analyzer,
     basic_consensus_node::ConsensusNode,
     controller::controller::Controller,
-    example_consensus_node::{test_log::TestLog, test_state::TestState, test_protocol::TestProtocol},
+    example_consensus_node::{
+        test_log::TestLog, test_protocol::TestProtocol, test_state::TestState,
+    },
 };
 use utils::parse::into_ip4_tcp_multiaddr;
 
@@ -34,7 +36,13 @@ impl BFTDiagnosisFramework {
             println!("Controller");
             let controller_config = read_controller_config();
             let controller_ip_addr = controller_config.clone().network.unwrap().ip_addr.unwrap();
-            let controller_ip_port = controller_config.network.unwrap().ip_port.unwrap().clone();
+            let controller_ip_port = controller_config.clone().network.unwrap().ip_port.unwrap();
+            let conspire_request_send_duration = controller_config
+                .clone()
+                .extra
+                .unwrap()
+                .conspire_request_send_duration
+                .unwrap();
 
             let swarm_addr =
                 into_ip4_tcp_multiaddr(controller_ip_addr.as_str(), controller_ip_port);
@@ -42,7 +50,11 @@ impl BFTDiagnosisFramework {
 
             // let mut node = Node::new(Box::new(local_peer), &args.swarm_port.to_string());
 
-            let mut node = Controller::new(local_peer, controller_ip_port.to_string().as_str());
+            let mut node = Controller::new(
+                local_peer,
+                controller_ip_port.to_string().as_str(),
+                conspire_request_send_duration,
+            );
 
             let bft_diagnosis_config = read_bft_diagnosis_config();
 
@@ -79,8 +91,17 @@ impl BFTDiagnosisFramework {
                 .unwrap()
                 .performance_internal
                 .unwrap();
-            let crash_test_duration = analyzer_config.clone().execution.unwrap().crash_duration.unwrap();
-            let malicious_test_duration = analyzer_config.execution.unwrap().malicious_duration.unwrap();
+            let crash_test_duration = analyzer_config
+                .clone()
+                .execution
+                .unwrap()
+                .crash_duration
+                .unwrap();
+            let malicious_test_duration = analyzer_config
+                .execution
+                .unwrap()
+                .malicious_duration
+                .unwrap();
 
             let swarm_addr = into_ip4_tcp_multiaddr(analyzer_ip_addr.as_str(), analyzer_ip_port);
             let local_peer = Peer::new(swarm_addr);

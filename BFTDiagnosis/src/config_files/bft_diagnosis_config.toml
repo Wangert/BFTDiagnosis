@@ -28,5 +28,5 @@ behaviours = [
     # "LeaderSendAmbiguousMessage", 
     # "LeaderDelaySendMessage",
     "LeaderSendDuplicateMessage", 
-    # "ReplicaNodeConspireForgeMessages"
+    "ReplicaNodeConspireForgeMessages"
     ]
