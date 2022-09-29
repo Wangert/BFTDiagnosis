@@ -10,3 +10,4 @@ utils = { path = "../utils"}
 leveldb = "0.8.6"
 db-key = "0.0.5"
 bigint = "4.4.3"
+mysql = "22.2.0"

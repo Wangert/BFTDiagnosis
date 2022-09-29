@@ -21,9 +21,29 @@ pub fn print_latency_results_cmd() -> Command<'static> {
         .about("printLatencyResults")
 }
 
-pub fn print_scalability_results_cmd() -> Command<'static> {
-    clap::Command::new("printScalabilityResults")
-        .about("printScalabilityResults")
+pub fn print_scalability_throughput_results_cmd() -> Command<'static> {
+    clap::Command::new("printScalabilityThroughputResults")
+        .about("printScalabilityThroughputResults")
+}
+
+pub fn print_scalability_latency_results_cmd() -> Command<'static> {
+    clap::Command::new("printScalabilityLatencyResults")
+        .about("printScalabilityLatencyResults")
+}
+
+pub fn print_crash_results_cmd() -> Command<'static> {
+    clap::Command::new("printCrashResults")
+        .about("printCrashResults")
+}
+
+pub fn print_malicious_results_cmd() -> Command<'static> {
+    clap::Command::new("printMaliciousResults")
+        .about("printMaliciousResults")
+}
+
+pub fn send_consensus_requests_cmd() -> Command<'static> {
+    clap::Command::new("sendConsensusRequests")
+        .about("sendConsensusRequests")
 }
 
 pub fn start_test_cmd() -> Command<'static> {
@@ -39,6 +59,14 @@ pub fn configure_analyzer_cmd() -> Command<'static> {
 pub fn configure_consensus_node_cmd() -> Command<'static> {
     clap::Command::new("configureConsensusNode")
         .about("configureConsensusNode")
+}
+
+pub fn query_protocol_phases_cmd() -> Command<'static> {
+    clap::Command::new("queryProtocolPhases").about("queryProtocolPhases")
+}
+
+pub fn print_protocol_phases_cmd() -> Command<'static> {
+    clap::Command::new("printProtocolPhases").about("printProtocolPhases")
 }
 
 pub fn protocol_start_cmd() -> Command<'static> {

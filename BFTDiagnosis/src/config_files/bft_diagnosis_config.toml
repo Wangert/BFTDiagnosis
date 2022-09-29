@@ -7,16 +7,16 @@ enable = true
 
 [scalability]
 enable = true
-max = 2
+max = 3
 internal = 1
 
 # Security testing: crash and malicious behaviours
 [crash]
-enable = true
+enable = false
 max = 2
 
 [malicious]
-enable = true
+enable = false
 number_of_phase = 2
 # optional behaviours:
 # LeaderFeignDeath
@@ -24,9 +24,9 @@ number_of_phase = 2
 # LeaderDelaySendMessage
 # ReplicaNodeConspireForgeMessages
 behaviours = [
-    "LeaderFeignDeath", 
+    # "LeaderFeignDeath", 
     # "LeaderSendAmbiguousMessage", 
     # "LeaderDelaySendMessage",
-    "LeaderSendDuplicateMessage", 
+    # "LeaderSendDuplicateMessage", 
     # "ReplicaNodeConspireForgeMessages"
     ]

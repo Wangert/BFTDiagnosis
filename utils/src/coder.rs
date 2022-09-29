@@ -35,12 +35,20 @@ where
     seialized
 }
 
-pub fn serialize_into_json_bytes<T: ?Sized>(value: &T) -> String
+pub fn serialize_into_json_bytes<T: ?Sized>(value: &T) -> Vec<u8>
 where
     T: Serialize,
 {
-    let json_bytes = serde_json::to_string(value).unwrap();
+    let json_bytes = serde_json::to_string(value).unwrap().as_bytes().to_vec();
     json_bytes
+}
+
+pub fn serialize_into_json_str<T: ?Sized>(value: &T) -> String
+where
+    T: Serialize,
+{
+    let json_str = serde_json::to_string(value).unwrap();
+    json_str
 }
 
 pub fn deserialize_for_json_bytes<'a, T: ?Sized>(json_bytes: &'a [u8]) -> T 
@@ -70,7 +78,7 @@ mod coder_test {
     use serde::{Deserialize, Serialize};
     use serde_json::{Value, Map, json};
 
-    use crate::coder::{get_hash_u8_vec, get_hash_str, deserialize_for_json_bytes};
+    use crate::coder::{get_hash_u8_vec, get_hash_str, deserialize_for_json_bytes, serialize_into_json_str};
 
     use super::serialize_into_json_bytes;
 
@@ -113,7 +121,7 @@ mod coder_test {
             justify: Some(qc),
         };
 
-        let json_bytes = serialize_into_json_bytes(&pc);
+        let json_bytes = serialize_into_json_str(&pc);
         println!("first serialize: {:?}", json_bytes);
 
         let de: PreCommit = deserialize_for_json_bytes(json_bytes.as_bytes());
@@ -158,7 +166,7 @@ mod coder_test {
             }
         }
 
-        let map_json_bytes = serialize_into_json_bytes(&obj);
+        let map_json_bytes = serialize_into_json_str(&obj);
         println!("after motify json: {:?}", map_json_bytes);
 
         let final_de: PreCommit = deserialize_for_json_bytes(map_json_bytes.as_bytes());

@@ -8,6 +8,8 @@ use utils::{
     crypto::threshold_signature::{self, TBLSKey},
 };
 
+use crate::message::{InteractiveMessage, Message};
+
 use super::message::{Command, CommandMessage, DistributeTBLSKey, Request};
 
 #[derive(Debug, Clone)]
@@ -45,8 +47,9 @@ pub fn generate_bls_keys(
 }
 
 pub fn generate_a_consensus_request_command() -> CommandMessage {
-    let cmd = format!("{}{}", "wangjitao", Local::now().timestamp_subsec_nanos());
-    let request = Request { cmd, flag: false };
+    let timestamp = Local::now().timestamp_nanos() as u64;
+    let cmd = format!("{}{}", "wangjitao", timestamp);
+    let request = Request { cmd, timestamp};
 
     let message = CommandMessage {
         command: Command::MakeAConsensusRequest(request),
@@ -55,16 +58,18 @@ pub fn generate_a_consensus_request_command() -> CommandMessage {
     message
 }
 
-pub fn generate_consensus_requests_command(size: usize) -> CommandMessage {
+pub fn generate_consensus_requests_command(size: usize) -> Message {
     let mut requests = vec![];
     for _ in 0..size {
-        let cmd = format!("{}{}", "wangjitao", Local::now().timestamp_subsec_nanos());
-        let request = Request { cmd, flag: false };
+        let timestamp = Local::now().timestamp_nanos() as u64;
+        let cmd = format!("{}{}", "wangjitao", timestamp);
+        let request = Request { cmd, timestamp };
         requests.push(request);
     }
 
-    let message = CommandMessage {
-        command: Command::MakeConsensusRequests(requests),
+    let message = Message {
+        interactive_message: InteractiveMessage::MakeConsensusRequests(requests),
+        source: vec![],
     };
 
     message

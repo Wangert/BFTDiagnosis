@@ -41,9 +41,9 @@ impl Client {
     }
 
     pub fn consensus_run(&self) {
-        println!("============================================================================================================");
-        println!("************************************************************************************************************");
-        println!("                                                                                                            ");
+        println!("=========================================================================================");
+        println!("*****************************************************************************************");
+        println!("                                                                                         ");
         println!(
             "
             
@@ -64,12 +64,12 @@ impl Client {
         );
         println!("BFTDiagnosis Tool(version 1.0):");
         println!("<<A general testing framework for semi-synchronous BFT protocol>>");
-        println!("                                                                                                           ");
-        println!("                                                                     Developers: Jitao Wang & Bo Zhang");
-        println!("                                                                     Laboratory: DasLab of Fudan University");
-        println!("                                                                                                           ");
-        println!("***********************************************************************************************************");
-        println!("===========================================================================================================");
+        println!("                                                                                         ");
+        println!("                                                        Developers: Jitao Wang & Bo Zhang");
+        println!("                                                   Laboratory: DasLab of Fudan University");
+        println!("                                                                                         ");
+        println!("*****************************************************************************************");
+        println!("=========================================================================================");
         println!("The Consensus node is running!");
     }
 }
@@ -94,9 +94,9 @@ pub async fn run(args_sender: Sender<Vec<String>>, client_type: ClientType) {
 
     // if rl.load_history("/tmp/history").is_err() {
 
-    println!("============================================================================================================");
-    println!("************************************************************************************************************");
-    println!("                                                                                                            ");
+    println!("==========================================================================================");
+    println!("******************************************************************************************");
+    println!("                                                                                          ");
     println!(
         "
         
@@ -117,12 +117,12 @@ pub async fn run(args_sender: Sender<Vec<String>>, client_type: ClientType) {
     );
     println!("BFTDiagnosis Tool(version 1.0):");
     println!("<<A general testing framework for semi-synchronous BFT protocol>>");
-    println!("                                                                                                           ");
-    println!("                                                                     Developers: Jitao Wang & Bo Zhang");
-    println!("                                                                     Laboratory: DasLab of Fudan University");
-    println!("                                                                                                           ");
-    println!("***********************************************************************************************************");
-    println!("===========================================================================================================");
+    println!("                                                                                         ");
+    println!("                                                        Developers: Jitao Wang & Bo Zhang");
+    println!("                                                   Laboratory: DasLab of Fudan University");
+    println!("                                                                                         ");
+    println!("*****************************************************************************************");
+    println!("=========================================================================================");
     // }
 
     loop {

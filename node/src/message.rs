@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::{Formatter, Result, Display}};
 
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
@@ -52,6 +52,9 @@ pub enum InteractiveMessage {
     JoinConsensus(u64),
     JoinConsensusSuccess,
 
+    MaliciousTestPreparation,
+    ConsensusPhase(u8, Vec<u8>),
+
     ConfigureConsensusNode(ConfigureState),
     ConfigureConsensusNodeSuccess(ConfigureState),
 
@@ -61,6 +64,11 @@ pub enum InteractiveMessage {
     ProtocolStart(u64),
     Reset(u64),
     ResetSuccess(ConsensusNodeMode),
+
+    // Make a consensus request
+    MakeAConsensusRequest(Request),
+    // Make a set of consensus requests
+    MakeConsensusRequests(Vec<Request>),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -88,15 +96,66 @@ pub enum TestItem {
     Malicious(MaliciousBehaviour),
 }
 
+impl Display for TestItem {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match self {
+            TestItem::Throughput => write!(f, "Throughput"),
+            TestItem::Latency => write!(f, "Latency"),
+            TestItem::ThroughputAndLatency => write!(f, "ThroughputAndLatency"),
+            TestItem::Scalability(n_1, n_2, n_3) => write!(f, "Scalability({}, {}, {})", n_1, n_2, n_3),
+            TestItem::Crash(n_1, n_2) => write!(f, "Crash({}, {})", n_1, n_2),
+            TestItem::Malicious(m) => write!(f, "Malicious({})", m.to_string()),
+        }
+    }
+}
+
+impl From<TestItem> for String {
+    fn from(item: TestItem) -> Self {
+        match item {
+            TestItem::Throughput => "Throughput".into(),
+            TestItem::Latency => "Latency".into(),
+            TestItem::ThroughputAndLatency => "ThroughputAndLatency".into(),
+            TestItem::Scalability(n_1, n_2, n_3) => format!("Scalability({}, {}, {})", n_1, n_2, n_3).into(),
+            TestItem::Crash(n_1, n_2) => format!("Crash({}, {})", n_1, n_2).into(),
+            TestItem::Malicious(m) => format!("Malicious({})", m.to_string()).into(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum MaliciousBehaviour {
     LeaderFeignDeath(Round, u8),
-    LeaderSendAmbiguousMessage(Round, u8),
+    LeaderSendAmbiguousMessage(Round, u8, Vec<String>, u16),
     LeaderDelaySendMessage(Round, u8),
     LeaderSendDuplicateMessage(Round, u8),
 
-    ReplicaNodeConspireForgeMessages,
+    ReplicaNodeConspireForgeMessages(Round, u8, Vec<String>, u16),
 }
+
+impl Display for MaliciousBehaviour {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match self {
+            MaliciousBehaviour::LeaderFeignDeath(round, n) => write!(f, "LeaderFeignDeath({}, {})", round.to_string(), n),
+            MaliciousBehaviour::LeaderSendAmbiguousMessage(round, n_1, field, n_2) => write!(f, "LeaderSendAmbiguousMessage({}, {}, {:?}, {})", round.to_string(), n_1, field, n_2),
+            MaliciousBehaviour::LeaderDelaySendMessage(round, n_1) => write!(f, "LeaderDelaySendMessage({}, {})", round.to_string(), n_1),
+            MaliciousBehaviour::LeaderSendDuplicateMessage(round, n_1) => write!(f, "LeaderSendDuplicateMessage({}, {})", round.to_string(), n_1),
+            MaliciousBehaviour::ReplicaNodeConspireForgeMessages(round, n_1, field, n_2) => write!(f, "ReplicaNodeConspireForgeMessages({}, {}, {:?}, {})", round.to_string(), n_1, field, n_2),
+        }
+    }
+}
+
+impl From<MaliciousBehaviour> for String {
+    fn from(m: MaliciousBehaviour) -> Self {
+        match m {
+            MaliciousBehaviour::LeaderFeignDeath(round, n) => format!("LeaderFeignDeath({}, {})", round.to_string(), n).into(),
+            MaliciousBehaviour::LeaderSendAmbiguousMessage(round, n_1, field, n_2) => format!("LeaderSendAmbiguousMessage({}, {}, {:?}, {})", round.to_string(), n_1, field, n_2).into(),
+            MaliciousBehaviour::LeaderDelaySendMessage(round, n_1) => format!("LeaderDelaySendMessage({}, {})", round.to_string(), n_1).into(),
+            MaliciousBehaviour::LeaderSendDuplicateMessage(round, n_1) => format!("LeaderSendDuplicateMessage({}, {})", round.to_string(), n_1).into(),
+            MaliciousBehaviour::ReplicaNodeConspireForgeMessages(round, n_1, field, n_2) => format!("ReplicaNodeConspireForgeMessages({}, {}, {:?}, {})", round.to_string(), n_1, field, n_2).into(),
+        }
+    }
+}
+
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub enum Round {
@@ -104,10 +163,28 @@ pub enum Round {
     OtherRound(u8),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+impl Display for Round {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match self {
+            Round::FirstRound => write!(f, "FirstRound"),
+            Round::OtherRound(n) => write!(f, "OtherRound({})", n),
+        }
+    }
+}
+
+impl From<Round> for String {
+    fn from(round: Round) -> Self {
+        match round {
+            Round::FirstRound => "FirstRound".into(),
+            Round::OtherRound(n) => format!("OtherRound({})", n).into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct Request {
     pub cmd: String,
-    pub flag: bool,
+    pub timestamp: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -132,16 +209,29 @@ pub enum ConsensusData {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConsensusStartData {
     pub request: Request,
-    pub start_time: i64,
+    pub start_time: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConsensusEndData {
     pub request: Request,
-    pub completed_time: i64,
+    pub completed_time: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConsensusDataMessage {
     pub data: ConsensusData,
+}
+
+
+#[cfg(test)]
+pub mod message_tests {
+    use super::TestItem;
+
+    #[test]
+    fn test_item_works() {
+        let item = TestItem::Scalability(1, 2, 3);
+        let s = item.to_string();
+        println!("{}", s);
+    }
 }

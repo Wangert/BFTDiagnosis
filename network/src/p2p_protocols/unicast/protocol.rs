@@ -30,7 +30,7 @@ where
 
     fn upgrade_inbound(self, mut socket: TSocket, _: Self::Info) -> Self::Future {
         Box::pin(async move {
-            let packet = upgrade::read_length_prefixed(&mut socket, 2048).await?;
+            let packet = upgrade::read_length_prefixed(&mut socket, 6000).await?;
             // println!("ppppppp");
             let unicast_msg: UnicastMessage = coder::deserialize_for_bytes(&packet[..]);
             //let unicast_msg: UnicastMessage = encode::deserialize_for_bytes(&packet[..]);
