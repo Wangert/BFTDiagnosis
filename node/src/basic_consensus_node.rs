@@ -64,6 +64,9 @@ where
 
     // consensus node's mode: Honest、Dishonest、Outage
     mode: ConsensusNodeMode,
+    consensus_state: Arc<Mutex<bool>>,
+
+    protocol_running: bool,
 }
 
 impl<TLog, TState, TProtocol> ConsensusNode<TLog, TState, TProtocol>
@@ -94,10 +97,14 @@ where
             other_consensus_node: vec![],
 
             mode: ConsensusNodeMode::Uninitialized,
+            consensus_state: Arc::new(Mutex::new(false)),
+
+            protocol_running: false,
         }
     }
 
-    pub async fn network_start(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn network_start(&mut self, is_leader: bool) -> Result<(), Box<dyn Error>> {
+        self.protocol_mut().set_leader(is_leader);
         self.peer_mut().swarm_start(true).await?;
 
         self.subscribe_topics();
@@ -263,16 +270,16 @@ where
         self.request_buffer.clear();
         self.malicious_flag = false;
 
-        let topic = IdentTopic::new("Consensus");
-        if let Err(e) = self
-            .peer_mut()
-            .network_swarm_mut()
-            .behaviour_mut()
-            .gossipsub
-            .unsubscribe(&topic)
-        {
-            eprintln!("Unsubscribe consensus topic error:{:?}", e);
-        };
+        // let topic = IdentTopic::new("Consensus");
+        // if let Err(e) = self
+        //     .peer_mut()
+        //     .network_swarm_mut()
+        //     .behaviour_mut()
+        //     .gossipsub
+        //     .unsubscribe(&topic)
+        // {
+        //     eprintln!("Unsubscribe consensus topic error:{:?}", e);
+        // };
 
         let interactive_message = InteractiveMessage::ResetSuccess(mode);
         let message = Message {
@@ -319,7 +326,7 @@ where
     }
 
     // The consensus's handler on the controller message
-    pub fn running_controller_message_handler(&mut self, message: Message) {
+    pub async fn running_controller_message_handler(&mut self, message: Message) {
         match message.interactive_message {
             InteractiveMessage::Reset(_) => {
                 println!("Reset!!!");
@@ -337,9 +344,18 @@ where
 
                 println!("^^^^^^^^^^^Current Request Buffer^^^^^^^^^^^");
                 println!("{:?}", &self.request_buffer);
+
+                if 0 != self.request_buffer.len() && self.protocol_mut().is_leader() {
+                    *self.consensus_state.lock().await = true;
+                }
             }
             InteractiveMessage::MakeConsensusRequests(requests) => {
                 self.write_requests_into_buffer(requests);
+                println!("^^^^^^^^^^^Current Request Buffer^^^^^^^^^^^");
+                println!("{:?}", &self.request_buffer);
+                if 0 != self.request_buffer.len() && self.protocol_mut().is_leader() {
+                    *self.consensus_state.lock().await = true;
+                }
             }
             _ => {}
         };
@@ -347,6 +363,16 @@ where
 
     pub async fn no_running_controller_message_handler(&mut self, message: Message) {
         match message.interactive_message {
+            // InteractiveMessage::ComponentInfo(Component::Controller(id_bytes)) => {
+            //     let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
+            //     println!("Controller PeerId: {:?}", controller_id.to_string());
+            //     self.add_controller(controller_id);
+            // }
+            // InteractiveMessage::ComponentInfo(Component::Analyzer(id_bytes)) => {
+            //     let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
+            //     println!("Analyzer PeerId: {:?}", controller_id.to_string());
+            //     self.add_analyzer(controller_id);
+            // }
             InteractiveMessage::ConfigureConsensusNode(state) => {
                 let topic = IdentTopic::new("Consensus");
                 if let Err(e) = self
@@ -470,30 +496,32 @@ where
                     SwarmEvent::Behaviour(OutEvent::Unicast(UnicastEvent::Message(message))) => {
                         println!("Controller unicast!");
                         let peer_id = PeerId::from_bytes(&message.source[..]).unwrap();
-                        if peer_id.to_string().eq(&self.controller_id().to_string()) {
+                        if self.controller_id().to_string().eq(&peer_id.to_string()) {
                             let message: Message = coder::deserialize_for_bytes(&message.data);
                             self.no_running_controller_message_handler(message).await;
-                        };
+                        }
                     }
                     SwarmEvent::Behaviour(OutEvent::Gossipsub(GossipsubEvent::Message {
                         propagation_source: _peer_id,
                         message_id: _id,
                         message,
                     })) => {
-                        let message: Message = coder::deserialize_for_bytes(&message.data);
-                        match message.interactive_message {
-                            InteractiveMessage::ComponentInfo(Component::Controller(id_bytes)) => {
-                                let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
-                                println!("Controller PeerId: {:?}", controller_id.to_string());
-                                self.add_controller(controller_id);
+                        if !self.verify_initialization() {
+                            let message: Message = coder::deserialize_for_bytes(&message.data);
+                            match message.interactive_message {
+                                InteractiveMessage::ComponentInfo(Component::Controller(id_bytes)) => {
+                                    let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
+                                    println!("Controller PeerId: {:?}", controller_id.to_string());
+                                    self.add_controller(controller_id);
+                                }
+                                InteractiveMessage::ComponentInfo(Component::Analyzer(id_bytes)) => {
+                                    let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
+                                    println!("Analyzer PeerId: {:?}", controller_id.to_string());
+                                    self.add_analyzer(controller_id);
+                                }
+                                _ => {}
                             }
-                            InteractiveMessage::ComponentInfo(Component::Analyzer(id_bytes)) => {
-                                let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
-                                println!("Analyzer PeerId: {:?}", controller_id.to_string());
-                                self.add_analyzer(controller_id);
-                            }
-                            _ => {}
-                        }
+                        }   
                     }
                     SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
                         for (peer, _) in list {
@@ -631,18 +659,18 @@ where
         }
     }
 
-    pub fn check_protocol_phase_state(&mut self, phase_state: PhaseState) {
+    pub async fn check_protocol_phase_state(&mut self, phase_state: PhaseState) {
         match phase_state {
             PhaseState::Over(request) => {
                 let consensus_end_data = ConsensusEndData {
-                    request,
-                    completed_time: Local::now().timestamp_millis(),
+                    request: request.clone(),
+                    completed_time: Local::now().timestamp_millis() as u64,
                 };
                 let data = ConsensusData::ConsensusEndData(consensus_end_data);
                 let consensus_data_message = ConsensusDataMessage { data };
 
                 let serialized_consensus_data_message =
-                    coder::serialize_into_bytes(&consensus_data_message);
+                    coder::serialize_into_json_bytes(&consensus_data_message);
 
                 let analysis_node_id = self.analyzer_id();
                 self.peer_mut()
@@ -650,28 +678,65 @@ where
                     .behaviour_mut()
                     .unicast
                     .send_message(&analysis_node_id, serialized_consensus_data_message);
-            }
-            PhaseState::ContinueExecute(SendType::Broadcast(msg)) => {
-                let phase = self.protocol_mut().get_current_phase(&msg[..]);
-                let send_type = SendType::Broadcast(msg);
-                if self.malicious_flag {
-                    self.malicious_trigger(phase, send_type.clone());
-                } else {
-                    self.send_message(send_type);
-                }
-            }
-            PhaseState::ContinueExecute(SendType::Unicast(r, msg)) => {
-                let phase = self.protocol_mut().get_current_phase(&msg[..]);
-                let send_type = SendType::Unicast(r, msg);
 
-                if self.malicious_flag && self.is_leader {
-                    self.malicious_trigger(phase, send_type.clone());
-                } else {
-                    self.send_message(send_type);
+                let request_hash = get_request_hash(&request);
+                self.request_buffer.remove(&request_hash);
+                if 0 != self.request_buffer.len() && self.protocol_mut().is_leader() {
+                    *self.consensus_state.lock().await = true;
                 }
             }
-            _ => {}
+            PhaseState::ContinueExecute(send_queue) => {
+                let mut send_queue = send_queue.clone();
+                loop {
+                    let send_type = send_queue.pop_front();
+                    println!("SendType:{:?}", send_type);
+                    if let Some(send_type) = send_type {
+                        match send_type {
+                            SendType::Broadcast(msg) => {
+                                let phase = self.protocol_mut().get_current_phase(&msg[..]);
+                                let send_type = SendType::Broadcast(msg);
+                                if self.malicious_flag {
+                                    self.malicious_trigger(phase, send_type.clone());
+                                } else {
+                                    self.send_message(send_type);
+                                }
+                            }
+                            SendType::Unicast(r, msg) => {
+                                let phase = self.protocol_mut().get_current_phase(&msg[..]);
+                                let send_type = SendType::Unicast(r, msg);
+
+                                if self.malicious_flag && self.is_leader {
+                                    self.malicious_trigger(phase, send_type.clone());
+                                } else {
+                                    self.send_message(send_type);
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
         }
+    }
+
+    pub fn state_check_start(&mut self) {
+        println!("==============【Proposal state check】==============");
+        // let is_primary = self.state.is_primary.clone();
+        // let have_request = self.state.hava_request.clone();
+        let state = self.consensus_state.clone();
+        let consensus_notify = self.consensus_notify.clone();
+        tokio::spawn(async move {
+            loop {
+                //println!("is_primary:{} ----- have_request:{}", *is_primary.lock().await, *have_request.lock().await);
+                let state_value = *state.lock().await;
+                if state_value {
+                    consensus_notify.notify_one();
+                    *state.lock().await = false;
+                }
+            }
+        });
     }
 
     pub async fn message_handler_start(&mut self) {
@@ -682,6 +747,7 @@ where
         let malicious_notify = self.malicious_notify();
 
         self.protocol_start_preprocess();
+        self.state_check_start();
         // Kick it off
         loop {
             tokio::select! {
@@ -716,18 +782,20 @@ where
                     }
 
                     let request = request.unwrap();
-                    let serialized_request_message = coder::serialize_into_bytes(&request);
+                    let serialized_request_message = self.protocol_mut().generate_serialized_request_message(&request);
 
-                    let consensus_start_data = ConsensusStartData { request, start_time: Local::now().timestamp_millis() };
+                    let consensus_start_data = ConsensusStartData { request: request.clone(), start_time: Local::now().timestamp_millis() as u64 };
                     let consensus_data_message = ConsensusDataMessage {
                         data: ConsensusData::ConsensusStartData(consensus_start_data),
                     };
-                    let serialized_consensus_data = coder::serialize_into_bytes(&consensus_data_message);
+                    let serialized_consensus_data = coder::serialize_into_json_bytes(&consensus_data_message);
                     let analyzer_id = self.analyzer_id();
                     self.peer_mut().network_swarm_mut().behaviour_mut().unicast.send_message(&analyzer_id, serialized_consensus_data);
+
+                    self.protocol_mut().set_current_request(&request);
                     // handle request
                     let phase_state = self.protocol_mut().consensus_protocol_message_handler(&serialized_request_message);
-                    self.check_protocol_phase_state(phase_state);
+                    self.check_protocol_phase_state(phase_state).await;
                 },
                 _ = view_timeout_notify.notified() => {
                     self.protocol_mut().view_timeout_handler();
@@ -738,10 +806,10 @@ where
                         let peer_id = PeerId::from_bytes(&message.source[..]).unwrap();
                         if peer_id.to_string().eq(&self.controller_id().to_string()) {
                             let message: Message = coder::deserialize_for_bytes(&message.data);
-                            self.running_controller_message_handler(message);
+                            self.running_controller_message_handler(message).await;
                         } else {
                             let phase_state = self.protocol_mut().consensus_protocol_message_handler(&message.data);
-                            self.check_protocol_phase_state(phase_state);
+                            self.check_protocol_phase_state(phase_state).await;
                         };
                     }
                     SwarmEvent::Behaviour(OutEvent::Gossipsub(GossipsubEvent::Message {
@@ -750,7 +818,7 @@ where
                         message,
                     })) => {
                         let phase_state = self.protocol_mut().consensus_protocol_message_handler(&message.data);
-                        self.check_protocol_phase_state(phase_state);
+                        self.check_protocol_phase_state(phase_state).await;
                     }
                     _ => {
                         println!("Default!");

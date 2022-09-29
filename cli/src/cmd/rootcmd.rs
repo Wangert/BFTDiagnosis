@@ -1,13 +1,17 @@
 use crate::cmd::controller_cmd::configure_analyzer_cmd;
 use crate::cmd::controller_cmd::configure_consensus_node_cmd;
 use crate::cmd::controller_cmd::init_cmd;
+use crate::cmd::controller_cmd::print_crash_results_cmd;
 use crate::cmd::controller_cmd::print_latency_results_cmd;
+use crate::cmd::controller_cmd::print_malicious_results_cmd;
 use crate::cmd::controller_cmd::print_protocol_phases_cmd;
-use crate::cmd::controller_cmd::print_scalability_results_cmd;
+use crate::cmd::controller_cmd::print_scalability_latency_results_cmd;
+use crate::cmd::controller_cmd::print_scalability_throughput_results_cmd;
 use crate::cmd::controller_cmd::print_throughput_results_cmd;
 use crate::cmd::controller_cmd::print_unfinished_test_items_cmd;
 use crate::cmd::controller_cmd::protocol_start_cmd;
 use crate::cmd::controller_cmd::query_protocol_phases_cmd;
+use crate::cmd::controller_cmd::send_consensus_requests_cmd;
 use crate::cmd::controller_cmd::start_test_cmd;
 use crate::commons::CommandCompleter;
 use crate::commons::SubCmd;
@@ -45,13 +49,17 @@ lazy_static! {
         .subcommand(print_unfinished_test_items_cmd())
         .subcommand(print_throughput_results_cmd())
         .subcommand(print_latency_results_cmd())
-        .subcommand(print_scalability_results_cmd())
+        .subcommand(print_scalability_throughput_results_cmd())
+        .subcommand(print_scalability_latency_results_cmd())
+        .subcommand(print_crash_results_cmd())
+        .subcommand(print_malicious_results_cmd())
         .subcommand(start_test_cmd())
         .subcommand(configure_analyzer_cmd())
         .subcommand(protocol_start_cmd())
         .subcommand(configure_consensus_node_cmd())
         .subcommand(query_protocol_phases_cmd())
-        .subcommand(print_protocol_phases_cmd());
+        .subcommand(print_protocol_phases_cmd())
+        .subcommand(send_consensus_requests_cmd());
     static ref CMD_SUBCMDS: Vec<SubCmd> = subcommands();
 }
 

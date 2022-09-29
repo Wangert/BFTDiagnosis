@@ -1,4 +1,4 @@
-use std::{sync::Arc, collections::HashMap};
+use std::{sync::Arc, collections::{HashMap, VecDeque}};
 
 use libp2p::PeerId;
 use network::peer::Peer;
@@ -14,7 +14,9 @@ pub trait ConsensusNodeBehaviour {
     fn receive_consensus_requests(&mut self, requests: Vec<Request>);
     // Consensus protocol's message handler
     fn consensus_protocol_message_handler(&mut self, _msg: &[u8]) -> PhaseState {
-        PhaseState::ContinueExecute(SendType::Broadcast(vec![]))
+        let mut queue = VecDeque::new();
+        queue.push_back(SendType::Broadcast(vec![]));
+        PhaseState::ContinueExecute(queue)
     }
     fn get_current_phase(&mut self, _msg: &[u8]) -> u8 {
         1
@@ -35,6 +37,22 @@ pub trait ConsensusNodeBehaviour {
 
     fn current_request(&self) -> Request;
 
+    fn is_leader(&self) -> bool {
+        false
+    }
+
+    fn set_leader(&mut self, is_leader: bool) {
+
+    }
+
+    fn generate_serialized_request_message(&self, request: &Request) -> Vec<u8> {
+        vec![]
+    }
+
+    fn set_current_request(&mut self, request: &Request) {
+        
+    }
+
 }
 
 type MessageBytes = Vec<u8>;
@@ -42,7 +60,7 @@ type MessageBytes = Vec<u8>;
 #[derive(Debug, Clone)]
 pub enum PhaseState {
     Over(Request),
-    ContinueExecute(SendType),
+    ContinueExecute(VecDeque<SendType>),
 }
 
 #[derive(Debug, Clone)]

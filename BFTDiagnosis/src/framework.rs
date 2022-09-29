@@ -140,10 +140,13 @@ impl BFTDiagnosisFramework {
                     local_peer.id
                 );
 
+                let is_leader = msg[2].parse::<bool>().unwrap();
+                println!("{}", is_leader);
+
                 let mut node: ConsensusNode<TestLog, TestState, TestProtocol> =
                     ConsensusNode::new(local_peer, msg[0]);
                 self.client.consensus_run();
-                node.network_start().await?;
+                node.network_start(is_leader).await?;
             }
         }
 

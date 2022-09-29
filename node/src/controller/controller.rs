@@ -87,6 +87,7 @@ pub struct Controller {
     crash_reset_success_count: u16,
     feedback_dishonest_node_count: u16,
     feedback_dishonest_node_success_count: u16,
+    feedback_scalability_first_count: u16,
 
     client: Client,
     args_sender: Sender<Vec<String>>,
@@ -139,6 +140,7 @@ impl Controller {
             crash_reset_success_count: 0,
             feedback_dishonest_node_count: 0,
             feedback_dishonest_node_success_count: 0,
+            feedback_scalability_first_count: 0,
 
             client: Client::new(matches),
             args_sender,
@@ -482,17 +484,20 @@ impl Controller {
     // Initiate a set of consensus requests
     pub fn make_consensus_requests(&mut self, count: usize) {
         let msg = generate_consensus_requests_command(count);
-        println!("Request: {:#?}", msg);
-        let serialized_msg = serialize_into_bytes(&msg);
-        let topic = IdentTopic::new("Consensus");
-        if let Err(e) = self
-            .peer_mut()
-            .network_swarm_mut()
-            .behaviour_mut()
-            .gossipsub
-            .publish(topic.clone(), serialized_msg)
-        {
-            eprintln!("Publish message error:{:?}", e);
+        println!("Requests: {:?}", msg);
+
+        let serialized_message = coder::serialize_into_bytes(&msg);
+        let consensus_nodes = self.consensus_nodes_set().clone();
+        println!(
+            "[Send_Requests] Current Consensus Nodes: {:?}",
+            &consensus_nodes
+        );
+        for peer_id in consensus_nodes {
+            self.peer_mut()
+                .network_swarm_mut()
+                .behaviour_mut()
+                .unicast
+                .send_message(&peer_id, serialized_message.clone());
         }
     }
 
@@ -507,6 +512,15 @@ impl Controller {
         };
 
         let serialized_message = coder::serialize_into_bytes(&message);
+        // let connected_nodes = self.connected_nodes.clone();
+        // connected_nodes.iter().for_each(|(_, v)| {
+        //     self.peer_mut()
+        //         .network_swarm_mut()
+        //         .behaviour_mut()
+        //         .unicast
+        //         .send_message(v, serialized_message.clone());
+        // });
+
         let topic = IdentTopic::new("Initialization");
         if let Err(e) = self
             .peer_mut()
@@ -526,6 +540,10 @@ impl Controller {
             match item {
                 TestItem::Crash(_, _) => {
                     self.optional_crash_consensus_nodes =
+                        self.waiting_consensus_nodes_set().clone();
+                }
+                TestItem::Scalability(_, _, _) => {
+                    self.optional_scalability_consensus_nodes =
                         self.waiting_consensus_nodes_set().clone();
                 }
                 _ => {}
@@ -566,7 +584,8 @@ impl Controller {
         let next_item = self.next_test_item.as_ref().unwrap();
 
         match next_item {
-            TestItem::Scalability(_, _, _) => {
+            TestItem::Scalability(n, _, _) => {
+                self.feedback_scalability_first_count = *n;
                 self.consensus_nodes_set().clear();
                 let peer_id = self.random_select_a_consensus_node_for_scalabiliy_test();
                 if let Some(peer_id) = peer_id {
@@ -581,7 +600,8 @@ impl Controller {
 
                 let optional_consensus_nodes =
                     self.optional_scalability_consensus_nodes_set().clone();
-                let mode = ConsensusNodeMode::Honest(configure_state);
+                // let mode = ConsensusNodeMode::Honest(configure_state);
+                let mode = ConsensusNodeMode::Uninitialized;
 
                 optional_consensus_nodes
                     .iter()
@@ -713,6 +733,7 @@ impl Controller {
                             .send_message(&peer_id, serialized_message.clone());
                         self.optional_scalability_consensus_nodes_set()
                             .remove(&peer_id);
+                        println!("Optional: {:?}", self.optional_crash_consensus_nodes_set());
                     }
 
                     self.next_mid_test(item, None);
@@ -808,8 +829,7 @@ impl Controller {
                     } else {
                         let request = Request {
                             cmd: "Conspire".to_string(),
-                            flag: true,
-                            timestamp: Local::now().timestamp_millis(),
+                            timestamp: Local::now().timestamp_nanos() as u64,
                         };
                         self.set_conspire_request(&request);
                         self.feedback_dishonest_node_count = dishonest_peer_ids.len() as u16;
@@ -973,8 +993,8 @@ impl Controller {
                 .last()
                 .unwrap()
                 .clone();
-            self.optional_scalability_consensus_nodes_set()
-                .remove(&peer_id);
+            // self.optional_scalability_consensus_nodes_set()
+            //     .remove(&peer_id);
             return Some(peer_id);
         }
     }
@@ -1370,13 +1390,13 @@ impl Controller {
             }
             InteractiveMessage::ConfigureConsensusNodeSuccess(_) => {
                 println!("{:?} configure consensus node success!", &peer_id);
-                self.remove_waiting_consensus_node(&peer_id);
+                // self.remove_waiting_consensus_node(&peer_id);
                 self.consensus_nodes_set().insert(peer_id);
                 self.not_crash_consensus_nodes_set().insert(peer_id);
                 self.optional_crash_consensus_nodes_set().insert(peer_id);
             }
             InteractiveMessage::ResetSuccess(mode) => match mode {
-                ConsensusNodeMode::Uninitialized => todo!(),
+                ConsensusNodeMode::Uninitialized => {}
                 ConsensusNodeMode::Honest(_) | ConsensusNodeMode::Dishonest(_) => {
                     // println!("99999999999999");
                     self.reset_success_count += 1;
@@ -1418,7 +1438,7 @@ impl Controller {
                         self.consensus_nodes_set_insert(&peer_id);
                         self.not_crash_consensus_nodes_set_insert(&peer_id);
                         self.optional_crash_consensus_nodes_set_insert(&peer_id);
-                        self.optional_scalability_consensus_nodes_set_insert(&peer_id);
+                        //self.optional_scalability_consensus_nodes_set_insert(&peer_id);
                     }
                     ConsensusNodeMode::Honest(ConfigureState::Other) => {
                         println!("Honest consensus node: {:?}", &peer_id);
@@ -1428,9 +1448,11 @@ impl Controller {
                         self.not_crash_consensus_nodes_set_insert(&peer_id);
                         self.optional_crash_consensus_nodes_set_insert(&peer_id);
                         self.consensus_node_configure_count += 1;
-                        if self.waiting_consensus_nodes_set().len() as u16
-                            == self.consensus_node_configure_count
+                        if (self.waiting_consensus_nodes_set().len() as u16
+                            == self.consensus_node_configure_count)
+                            || (1 == self.feedback_scalability_first_count)
                         {
+                            self.feedback_scalability_first_count = 0;
                             self.consensus_node_configure_count = 0;
                             self.protocol_start();
                             self.start_test();
@@ -1578,6 +1600,10 @@ impl Controller {
         if let Some(_) = matches.subcommand_matches("printProtocolPhases") {
             self.print_protocol_phases();
         }
+
+        if let Some(_) = matches.subcommand_matches("sendConsensusRequests") {
+            self.make_consensus_requests(50);
+        }
     }
 
     // Framework network message handler startup function
@@ -1624,6 +1650,7 @@ impl Controller {
                             println!("Discovered {:?}", &peer);
                             self.peer_mut().network_swarm_mut().behaviour_mut().unicast.add_node_to_partial_view(&peer);
                             self.peer_mut().network_swarm_mut().behaviour_mut().gossipsub.add_explicit_peer(&peer);
+                            self.connected_nodes.insert(peer.to_string(), peer.clone());
                             self.waiting_consensus_nodes_set().insert(peer.clone());
                         }
 

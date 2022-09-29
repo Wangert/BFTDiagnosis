@@ -21,9 +21,29 @@ pub fn print_latency_results_cmd() -> Command<'static> {
         .about("printLatencyResults")
 }
 
-pub fn print_scalability_results_cmd() -> Command<'static> {
-    clap::Command::new("printScalabilityResults")
-        .about("printScalabilityResults")
+pub fn print_scalability_throughput_results_cmd() -> Command<'static> {
+    clap::Command::new("printScalabilityThroughputResults")
+        .about("printScalabilityThroughputResults")
+}
+
+pub fn print_scalability_latency_results_cmd() -> Command<'static> {
+    clap::Command::new("printScalabilityLatencyResults")
+        .about("printScalabilityLatencyResults")
+}
+
+pub fn print_crash_results_cmd() -> Command<'static> {
+    clap::Command::new("printCrashResults")
+        .about("printCrashResults")
+}
+
+pub fn print_malicious_results_cmd() -> Command<'static> {
+    clap::Command::new("printMaliciousResults")
+        .about("printMaliciousResults")
+}
+
+pub fn send_consensus_requests_cmd() -> Command<'static> {
+    clap::Command::new("sendConsensusRequests")
+        .about("sendConsensusRequests")
 }
 
 pub fn start_test_cmd() -> Command<'static> {

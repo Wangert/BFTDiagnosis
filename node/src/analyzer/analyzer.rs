@@ -13,6 +13,7 @@ use network::{
     peer::Peer,
 };
 
+use chrono::Local;
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
     sync::Notify,
@@ -82,7 +83,7 @@ impl Analyzer {
             performance_test_internal,
             crash_test_duration,
             malicious_test_duration,
-            data_warehouse: DataWarehouse::new(),
+            data_warehouse: DataWarehouse::new("mysql://root:root@localhost:3306/bft_diagnosis"),
             completed_test_notify: Arc::new(Notify::new()),
             internal_notify: Arc::new(Notify::new()),
 
@@ -94,6 +95,7 @@ impl Analyzer {
 
     // Analyzer network startup, including peer start, gossip topic subscription, message handler
     pub async fn peer_start(&mut self) -> Result<(), Box<dyn Error>> {
+        self.data_warehouse_mut().create_result_tables();
         self.peer_mut().swarm_start(false).await?;
 
         // let arg_sender = self.args_sender.clone();
@@ -259,6 +261,15 @@ impl Analyzer {
         };
 
         let serialized_message = coder::serialize_into_bytes(&message);
+        // let connected_nodes = self.connected_nodes.clone();
+        // connected_nodes.iter().for_each(|(_, v)| {
+        //     self.peer_mut()
+        //         .network_swarm_mut()
+        //         .behaviour_mut()
+        //         .unicast
+        //         .send_message(v, serialized_message.clone());
+        // });
+
         let topic = IdentTopic::new("Initialization");
         if let Err(e) = self
             .peer_mut()
@@ -274,9 +285,9 @@ impl Analyzer {
     // When a test start command is received from the controller,
     // the analyzer acts on the current test item
     pub fn compute_and_analyse(&mut self) {
-        if let Some(test_item) = self.current_test_item() {
+        if let Some(ref test_item) = self.current_test_item() {
             let data_warehouse = self.data_warehouse_mut();
-            match test_item.clone() {
+            match test_item {
                 TestItem::Throughput => {
                     data_warehouse.compute_throughput();
                 }
@@ -288,13 +299,13 @@ impl Analyzer {
                     data_warehouse.compute_latency();
                 }
                 TestItem::Scalability(count, _max, _) => {
-                    data_warehouse.compute_scalability(count);
+                    data_warehouse.compute_scalability(*count, test_item);
                 }
                 TestItem::Crash(count, _) => {
-                    data_warehouse.test_crash(count);
+                    data_warehouse.test_crash(*count);
                 }
                 TestItem::Malicious(m) => {
-                    data_warehouse.test_malicious(test_item);
+                    data_warehouse.test_malicious(&test_item);
                     println!("MaliciousBehaviour Test: {:?}", m);
                 }
             }
@@ -307,6 +318,7 @@ impl Analyzer {
     // it notifies the controller to proceed with the next test
     pub fn next_test(&mut self) {
         let current_test_item = self.current_test_item().unwrap();
+
         self.clear_test_item();
         let message = Message {
             interactive_message: InteractiveMessage::CompletedTest(current_test_item),
@@ -328,12 +340,19 @@ impl Analyzer {
                 let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
                 println!("Controller PeerId: {:?}", controller_id.to_string());
                 self.add_controller(controller_id);
+                // self.connected_nodes.remove(&controller_id.to_string());
             }
             InteractiveMessage::ComponentInfo(Component::Analyzer(_id_bytes)) => {}
             InteractiveMessage::TestItem(item) => {
                 println!("#############################################");
                 println!("Configure test item: {:?}", &item);
-                self.set_test_item(item);
+                self.set_test_item(item.clone());
+                match item {
+                    TestItem::Scalability(_, _, _) => {
+                        self.data_warehouse_mut().insert_scalability_item(&item)
+                    }
+                    _ => {}
+                }
                 self.data_warehouse_mut().reset();
             }
             InteractiveMessage::CrashNode(count, peer_id_bytes) => {
@@ -343,6 +362,8 @@ impl Analyzer {
                 }
             }
             InteractiveMessage::StartTest(_) => {
+                let internal = self.performance_test_internal;
+                self.data_warehouse_mut().set_throughput_internal(internal);
                 println!("StartTest");
                 if let Some(test_item) = self.current_test_item() {
                     match test_item {
@@ -423,8 +444,22 @@ impl Analyzer {
             self.data_warehouse_mut().print_latency_results();
         }
 
-        if let Some(_) = matches.subcommand_matches("printScalabilityResults") {
-            self.data_warehouse_mut().print_scalability_results();
+        if let Some(_) = matches.subcommand_matches("printScalabilityThroughputResults") {
+            self.data_warehouse_mut()
+                .print_scalability_throughput_results();
+        }
+
+        if let Some(_) = matches.subcommand_matches("printScalabilityLatencyResults") {
+            self.data_warehouse_mut()
+                .print_scalability_latency_results();
+        }
+
+        if let Some(_) = matches.subcommand_matches("printCrashResults") {
+            self.data_warehouse_mut().print_crash_results();
+        }
+
+        if let Some(_) = matches.subcommand_matches("printMaliciousResults") {
+            self.data_warehouse_mut().print_malicious_results();
         }
 
         // if let Some(ref matches) = matches.subcommand_matches("test") {
@@ -476,7 +511,7 @@ impl Analyzer {
                             let message: Message = coder::deserialize_for_bytes(&message.data);
                             self.controller_message_handler(message).await;
                         } else if self.connected_nodes.contains_key(&peer_id.to_string()) {
-                            let consensus_data_message: ConsensusDataMessage = coder::deserialize_for_bytes(&message.data);
+                            let consensus_data_message: ConsensusDataMessage = coder::deserialize_for_json_bytes(&message.data);
                             self.consensus_node_message_handler(&peer_id, consensus_data_message);
                         }
                     }
@@ -500,12 +535,12 @@ impl Analyzer {
 
                     }
                     SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
-                        let swarm = self.peer_mut().network_swarm_mut();
+                        // let swarm = self.peer_mut().network_swarm_mut();
                         for (peer, _) in list {
                             println!("Discovered {:?}", &peer);
-                            swarm.behaviour_mut().unicast.add_node_to_partial_view(&peer);
-                            swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
-                            // self.connected_nodes.insert(peer.to_string(), peer.clone());
+                            self.peer_mut().network_swarm_mut().behaviour_mut().unicast.add_node_to_partial_view(&peer);
+                            self.peer_mut().network_swarm_mut().behaviour_mut().gossipsub.add_explicit_peer(&peer);
+                            self.connected_nodes.insert(peer.to_string(), peer.clone());
                         }
                     }
                     SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Expired(list))) => {
