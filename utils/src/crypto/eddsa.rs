@@ -1,5 +1,5 @@
 use ed25519_dalek::{Keypair, PublicKey, Signature, Signer, Verifier};
-use rand::rngs::OsRng;
+use old_rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 pub struct EdDSAKeyPair(pub Keypair);
 

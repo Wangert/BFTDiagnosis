@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use threshold_crypto::SignatureShare;
+use blsttc::SignatureShare;
 
 use super::message::{NewView, QC};
 

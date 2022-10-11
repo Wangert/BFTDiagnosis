@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 
+use blsttc::{serde_impl::SerdeSecret, SecretKeyShare, PublicKeyShare, PublicKey, PublicKeySet, SignatureShare, Signature, SecretKeySet};
 use serde::{Serialize, Deserialize};
-use threshold_crypto::{serde_impl::SerdeSecret,
-    PublicKey, PublicKeySet, PublicKeyShare, SecretKeySet, SecretKeyShare, Signature,
-    SignatureShare,
-};
 
 
 
@@ -86,6 +83,8 @@ pub fn combine_partial_signatures(
 mod threshold_sig_tests {
     use std::collections::HashMap;
 
+    use chrono::Local;
+
     use super::*;
     #[test]
     fn generate_works() {
@@ -128,7 +127,10 @@ mod threshold_sig_tests {
         println!("=============Partial Verification===========");
 
         for (i, _, pk) in nodes.into_iter() {
+            let start = Local::now().timestamp_millis();
             println!("{}: {}", i, pk.verify(&sigs.get(&i).unwrap(), msg));
+            let end = Local::now().timestamp_millis();
+            println!("{}: verify=>{}ms", i, end-start);
         }
 
         // println!("1: {}", node_1_keys.1.verify(&sigs.get(&0).unwrap(), msg));
@@ -136,20 +138,26 @@ mod threshold_sig_tests {
         // println!("3: {}", node_3_keys.1.verify(&sigs.get(&3).unwrap(), msg));
         // println!("4: {}", node_4_keys.1.verify(&sigs.get(&4).unwrap(), msg));
 
-        sigs.remove(&2);
-        sigs.remove(&5);
-        sigs.remove(&7);
-        sigs.remove(&0);
-        sigs.remove(&3);
-        sigs.remove(&6);
+        // sigs.remove(&2);
+        // sigs.remove(&5);
+        // sigs.remove(&7);
+        // sigs.remove(&0);
+        // sigs.remove(&3);
+        // sigs.remove(&6);
         for (i, sig) in &sigs {
             println!("{}|sig:[{:?}]|", i, &sig);
         }
 
+        let com_start = Local::now().timestamp_millis();
         let com_sig = combine_partial_signatures(&t_sig_keys.pk_set, &sigs);
+        let com_end = Local::now().timestamp_millis();
+        println!("Com_latency: {:?}ms", com_end - com_start);
         println!("Combined Signature: [{:?}]", &com_sig);
 
         println!("=============Threshold Signature Verification===========");
+        let v_start = Local::now().timestamp_millis();
         println!("result: {}", t_sig_keys.common_pk.verify(&com_sig, msg));
+        let v_end = Local::now().timestamp_millis();
+        println!("v_latency: {:?}ms", v_end - v_start);
     }
 }
