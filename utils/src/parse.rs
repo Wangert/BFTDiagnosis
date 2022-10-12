@@ -43,9 +43,13 @@ pub fn motify_map_value_with_field(
     map: Map<String, Value>,
     field: Vec<String>,
 ) -> Map<String, Value> {
+    println!("field:{:?}",field.clone());
     let f = field.get(0).unwrap();
+    println!("f: {:?}",f.clone());
+    println!("map:{:?}",map.clone());
+    //let value = map.get(f).unwrap().clone();
     let value = map.get(f).unwrap().clone();
-
+    println!("value:{:?}",value.clone());
     // let mut final_map = Map::new();
     let mut field_clone = field.clone();
 

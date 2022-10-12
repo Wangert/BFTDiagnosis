@@ -13,7 +13,6 @@ serde = { version = "1.0.136", features = ["derive"]}
 chrono = "0.4.19"
 utils = { path = "../utils" }
 threshold_crypto = "0.4.0"
-blsttc = "7.0.0"
 storage = { path = "../storage" }
 # BFTDiagnosis = { path = "../BFTDiagnosis" }
 cli = { path = "../cli" }
@@ -24,3 +23,4 @@ lazy_static = "1.4.0"
 trees = "0.4.2"
 serde_json = "1.0.85"
 mysql = "22.2.0"
+blsttc = "7.0.0"

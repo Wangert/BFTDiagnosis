@@ -283,14 +283,16 @@ impl DataWarehouse {
     pub fn store_consensus_start_data(&mut self, origin_peer_id: PeerId, data: ConsensusStartData) {
         let request_hash = get_request_hash(&data.request);
         self.t_start_data.insert(request_hash.clone(), data.clone());
-        self.l_start_data.insert(request_hash, data);
+        self.l_start_data.insert(request_hash.clone(), data.clone());
+        self.s_start_data.insert(request_hash, data);
     }
 
     pub fn store_consensus_end_data(&mut self, origin_peer_id: PeerId, data: ConsensusEndData) {
         let request_hash = get_request_hash(&data.request);
         self.t_end_data
             .insert((origin_peer_id, request_hash.clone()), data.clone());
-        self.l_end_data.insert((origin_peer_id, request_hash), data);
+        self.l_end_data.insert((origin_peer_id, request_hash.clone()), data.clone());
+        self.s_end_data.insert((origin_peer_id, request_hash), data);
     }
 
     pub fn prepare_compute_throughput(&mut self) {
@@ -316,6 +318,7 @@ impl DataWarehouse {
         // let current_time = 30;
 
         let data_computing = self.t_end_data_computing.clone();
+        println!("throughout:{:?}",data_computing.clone());
         data_computing.iter().for_each(|(k, _)| {
             if let Some(_) = self.t_start_data_computing.get(&k.1) {
                 self.update_request_count_with_peer(k.0);
@@ -323,7 +326,7 @@ impl DataWarehouse {
                 self.t_end_data_computing.remove(k);
             }
         });
-
+        println!("self.throughput_mid_results:{:?}",self.throughput_mid_results.clone());
         let index = self.internal_round;
         self.internal_round += 1;
         let throughput_mid_results = self.throughput_mid_results.clone();
@@ -359,8 +362,14 @@ impl DataWarehouse {
         let data_computing = self.l_end_data_computing.clone();
         data_computing.iter().for_each(|(k, end_data)| {
             if let Some(start_data) = self.l_start_data_computing.get(&k.1) {
-                let latency = (end_data.completed_time - start_data.start_time) as u64;
-                // let latency_result = LatencyResult {
+                println!("latency{},{}",end_data.completed_time.clone(),start_data.start_time);
+                // let latency = (end_data.completed_time as u64 - start_data.start_time as u64);
+                let latency = end_data.completed_time.wrapping_sub(start_data.start_time);
+                if latency > 100000 {
+                    
+                }
+                else {
+                    // let latency_result = LatencyResult {
                 //     request: start_data.request.clone(),
                 //     latency,
                 // };
@@ -368,6 +377,10 @@ impl DataWarehouse {
                 self.insert_latency_result(&k.0, &r, latency);
                 // self.store_latency_result(k.0, latency_result);
                 self.l_end_data_computing.remove(k);
+                }
+                
+                
+                
             }
         });
 
@@ -397,7 +410,7 @@ impl DataWarehouse {
                 self.t_end_data_computing.remove(k);
             }
         });
-
+        
         let index = self.internal_round;
         self.internal_round += 1;
         let throughput_mid_results = self.throughput_mid_results.clone();
@@ -439,7 +452,9 @@ impl DataWarehouse {
                 //     latency,
                 // };
                 let r = start_data.clone().request;
+                println!("Start insert!");
                 self.insert_scalability_latency_result(item, &k.0, &r, latency);
+                println!("ENd insert!");
                 // self.record_scalability_mid_latency(k.0, latency_result);
                 self.l_end_data_computing.remove(k);
             };
@@ -655,7 +670,6 @@ impl DataWarehouse {
                 id int auto_increment primary key,
                 peer_id text not null,
                 request_cmd text,
-                request_timestamp bigint not null,
                 latency int not null
             )",
         )
@@ -686,7 +700,6 @@ impl DataWarehouse {
                 item text,
                 peer_id text not null,
                 request_cmd text,
-                request_timestamp bigint not null,
                 latency int not null
             )",
         )
@@ -743,12 +756,12 @@ impl DataWarehouse {
         let mut conn = self.mysql_conn();
 
         conn.exec_drop(
-            r"INSERT INTO latency_results (peer_id, request_cmd, request_timestamp, latency) 
-            VALUES (:peer_id, :request_cmd, :request_timestamp, :latency)",
+            r"INSERT INTO latency_results (peer_id, request_cmd,  latency) 
+            VALUES (:peer_id, :request_cmd,  :latency)",
             params! {
                 "peer_id" => peer_id.to_string(),
                 "request_cmd" => request.cmd.clone(),
-                "request_timestamp" => request.timestamp,
+                // "request_timestamp" => request.timestamp,
                 latency,
             },
         )
@@ -757,13 +770,13 @@ impl DataWarehouse {
 
     pub fn query_latency_results(&mut self, start: u64, count: u64) -> Vec<(String, Request, u64)> {
         let mut conn = self.mysql_conn();
-        let sql = format!("SELECT peer_id, request_cmd, request_timestamp, latency FROM latency_results LIMIT {},{}", start, count);
+        let sql = format!("SELECT peer_id, request_cmd, latency FROM latency_results LIMIT {},{}", start, count);
 
         let results = conn
-            .query_map(sql, |(peer_id, request_cmd, request_timestamp, latency)| {
+            .query_map(sql, |(peer_id, request_cmd, latency)| {
                 let r = Request {
                     cmd: request_cmd,
-                    timestamp: request_timestamp,
+                    // timestamp: request_timestamp,
                 };
                 (peer_id, r, latency)
             })
@@ -857,13 +870,13 @@ impl DataWarehouse {
         let mut conn = self.mysql_conn();
 
         conn.exec_drop(
-            r"INSERT INTO scalability_latency_results (item, peer_id, request_cmd, request_timestamp, latency) 
-            VALUES (:item, :peer_id, :request_cmd, :request_timestamp, :latency)",
+            r"INSERT INTO scalability_latency_results (item, peer_id, request_cmd, latency) 
+            VALUES (:item, :peer_id, :request_cmd, :latency)",
             params! {
                 "item" => item.to_string(),
                 "peer_id" => peer_id.to_string(),
                 "request_cmd" => request.cmd.clone(),
-                "request_timestamp" => request.timestamp,
+                // "request_timestamp" => request.timestamp,
                 latency,
             },
         )
@@ -877,13 +890,13 @@ impl DataWarehouse {
         count: u64,
     ) -> Vec<(String, Request, u64)> {
         let mut conn = self.mysql_conn();
-        let sql = format!("SELECT peer_id, request_cmd, request_timestamp, latency FROM scalability_latency_results WHERE item = '{}' LIMIT {},{}", item.to_string(), start, count);
+        let sql = format!("SELECT peer_id, request_cmd, latency FROM scalability_latency_results WHERE item = '{}' LIMIT {},{}", item.to_string(), start, count);
 
         let results = conn
-            .query_map(sql, |(peer_id, request_cmd, request_timestamp, latency)| {
+            .query_map(sql, |(peer_id, request_cmd, latency)| {
                 let r = Request {
                     cmd: request_cmd,
-                    timestamp: request_timestamp,
+                    // timestamp: request_timestamp,
                 };
                 (peer_id, r, latency)
             })
@@ -917,15 +930,15 @@ pub mod data_warehouse_test {
 
         let request_1 = Request {
             cmd: "request_1".to_string(),
-            timestamp: Local::now().timestamp_nanos() as u64,
+            // timestamp: Local::now().timestamp_nanos() as u64,
         };
         let request_2 = Request {
             cmd: "request_2".to_string(),
-            timestamp: Local::now().timestamp_nanos() as u64,
+            // timestamp: Local::now().timestamp_nanos() as u64,
         };
         let request_3 = Request {
             cmd: "request_3".to_string(),
-            timestamp: Local::now().timestamp_nanos() as u64,
+            // timestamp: Local::now().timestamp_nanos() as u64,
         };
 
         let consensus_start_data_11 = ConsensusStartData {

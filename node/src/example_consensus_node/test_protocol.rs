@@ -9,7 +9,7 @@ use utils::coder;
 use crate::{
     basic_consensus_node::ConsensusNode,
     behaviour::{
-        ConsensusNodeBehaviour, NodeStateUpdateBehaviour, PhaseState, ProtocolLogsReadBehaviour,
+        ProtocolBehaviour, NodeStateUpdateBehaviour, PhaseState, ProtocolLogsReadBehaviour,
         SendType,
     },
     message::{ConsensusData, ConsensusDataMessage, Request}, common::get_request_hash,
@@ -77,7 +77,7 @@ impl Default for TestProtocol {
         Self {
             current_request: Request {
                 cmd: "None".to_string(),
-                timestamp: Local::now().timestamp_nanos() as u64,
+                // timestamp: Local::now().timestamp_nanos() as u64,
             },
             is_leader: false,
         }
@@ -182,7 +182,7 @@ impl TestProtocol {
     }
 }
 
-impl ConsensusNodeBehaviour for TestProtocol {
+impl ProtocolBehaviour for TestProtocol {
     fn analysis_node_poll_request(&mut self) {
         todo!()
     }
@@ -248,7 +248,7 @@ impl ConsensusNodeBehaviour for TestProtocol {
     fn current_request(&self) -> Request {
         Request {
             cmd: "Test".to_string(),
-            timestamp: Local::now().timestamp_nanos() as u64,
+            // timestamp: Local::now().timestamp_nanos() as u64,
         }
     }
 
