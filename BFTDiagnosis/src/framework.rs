@@ -4,7 +4,7 @@ use cli::{
 };
 
 use network::peer::Peer;
-use node::{
+use components::{
     analyzer::analyzer::Analyzer,
     basic_consensus_node::ConsensusNode,
     controller::controller::Controller,

@@ -1,0 +1,18 @@
+[package]
+name = "protocols"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+components = { path = "../components" }
+utils = { path = "../utils" }
+storage = { path = "../storage" }
+network = { path = "../network" }
+
+tokio = { version = "1.17.0", features = ["full"] }
+serde = { version = "1.0.136", features = ["derive"]}
+libp2p = "0.43.0"
+blsttc = "7.0.0"
+chrono = "0.4.19"

@@ -2,7 +2,7 @@ use std::error::Error;
 
 use BFTDiagnosis::framework::BFTDiagnosisFramework;
 use libp2p::PeerId;
-use node::controller::controller::Controller;
+use components::controller::controller::Controller;
 use cli::args::Args;
 use network::peer::Peer;
 use structopt::StructOpt;
