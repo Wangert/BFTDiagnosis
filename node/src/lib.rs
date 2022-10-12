@@ -6,7 +6,8 @@ pub mod common;
 pub mod controller;
 pub mod config;
 
-pub mod example_consensus_node;
+// pub mod example_consensus_node;
+pub mod internal_consensus;
 
 #[cfg(test)]
 pub mod node_test {

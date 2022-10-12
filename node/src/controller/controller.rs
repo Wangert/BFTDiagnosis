@@ -677,7 +677,7 @@ impl Controller {
     // For different test item tasks, the consensus node has different initial attributes.
     pub fn reset_consensus_node(&mut self) {
         if !self.need_reset() {
-            println!("All consensus node reset ok!!!");
+            println!("need reset? All consensus node reset ok!!!");
             self.reset_success_count = 0;
             self.crash_reset_success_count = 0;
             self.next_test();
@@ -829,7 +829,7 @@ impl Controller {
                     } else {
                         let request = Request {
                             cmd: "Conspire".to_string(),
-                            timestamp: Local::now().timestamp_nanos() as u64,
+                            // timestamp: Local::now().timestamp_nanos() as u64,
                         };
                         self.set_conspire_request(&request);
                         self.feedback_dishonest_node_count = dishonest_peer_ids.len() as u16;
@@ -843,6 +843,7 @@ impl Controller {
                             ),
                         );
                         dishonest_peer_ids.iter().for_each(|id| {
+                            println!("准备设置公式节点状态");
                             self.set_consensus_node_mode(id.clone(), mode.clone());
                         });
 
@@ -949,7 +950,7 @@ impl Controller {
             source: self.id_bytes().clone(),
         };
 
-        println!("{:?} set mode!!!!", peer_id);
+        
 
         let serialized_message = coder::serialize_into_bytes(&message);
 
@@ -958,6 +959,7 @@ impl Controller {
             .behaviour_mut()
             .unicast
             .send_message(&peer_id, serialized_message.clone());
+            println!("{:?} set mode!!!!", peer_id);
     }
 
     // Obtain a random consensus node ID from the crash consensus node alternative group
@@ -1180,6 +1182,35 @@ impl Controller {
                             }
                         }
                     }
+                    TestItem::Malicious(MaliciousBehaviour::LeaderDelaySendMessage(round, max_phase)) => {
+                        match round {
+                            Round::FirstRound => {
+                                if max_phase > 0 {
+                                    self.next_mid_test_item = Some(TestItem::Malicious(
+                                        MaliciousBehaviour::LeaderDelaySendMessage(
+                                            Round::OtherRound(1),
+                                            max_phase,
+                                        ),
+                                    ));
+                                } else {
+                                    self.next_mid_test_item = None;
+                                }
+                            }
+                            Round::OtherRound(phase) => {
+                                if phase < max_phase {
+                                    self.next_mid_test_item = Some(TestItem::Malicious(
+                                        MaliciousBehaviour::LeaderDelaySendMessage(
+                                            Round::OtherRound(phase + 1),
+                                            max_phase,
+                                        ),
+                                    ));
+                                } else {
+                                    self.next_mid_test_item = None;
+                                }
+                            }
+                        }
+                    }
+
                     TestItem::Malicious(MaliciousBehaviour::LeaderSendDuplicateMessage(
                         round,
                         max_phase,
@@ -1269,35 +1300,7 @@ impl Controller {
                             }
                         }
                     },
-                    TestItem::Malicious(MaliciousBehaviour::LeaderDelaySendMessage(
-                        round,
-                        max_phase,
-                    )) => match round {
-                        Round::FirstRound => {
-                            if max_phase > 0 {
-                                self.next_mid_test_item = Some(TestItem::Malicious(
-                                    MaliciousBehaviour::LeaderDelaySendMessage(
-                                        Round::OtherRound(1),
-                                        max_phase,
-                                    ),
-                                ));
-                            } else {
-                                self.next_mid_test_item = None;
-                            }
-                        }
-                        Round::OtherRound(phase) => {
-                            if phase < max_phase {
-                                self.next_mid_test_item = Some(TestItem::Malicious(
-                                    MaliciousBehaviour::LeaderDelaySendMessage(
-                                        Round::OtherRound(phase + 1),
-                                        max_phase,
-                                    ),
-                                ));
-                            } else {
-                                self.next_mid_test_item = None;
-                            }
-                        }
-                    },
+                    
                     TestItem::Malicious(MaliciousBehaviour::ReplicaNodeConspireForgeMessages(
                         round,
                         max_phase,
@@ -1484,6 +1487,9 @@ impl Controller {
                                     self.protocol_start();
                                     self.start_test();
                                 }
+                                else {
+                                    println!("ahha");
+                                }
                             }
                         }
                     }
@@ -1497,6 +1503,7 @@ impl Controller {
                             // self.not_crash_consensus_nodes_set().remove(&peer_id);
                             println!("protocol start success!!!");
                             self.protocol_start();
+                            // self.make_consensus_requests(10);
                             self.start_test();
                         }
                     }
@@ -1602,7 +1609,7 @@ impl Controller {
         }
 
         if let Some(_) = matches.subcommand_matches("sendConsensusRequests") {
-            self.make_consensus_requests(50);
+            self.make_consensus_requests(10);
         }
     }
 

@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use chrono::Local;
 use libp2p::PeerId;
 
-use utils::crypto::threshold_signature::{self, TBLSKey};
+use utils::crypto::threshold_blsttc::{self, TBLSKey};
 
 use super::message::{DistributeTBLSKey, Message, MessageType, Request};
 
@@ -17,10 +17,8 @@ pub fn generate_bls_keys(
     consensus_nodes: &HashMap<String, PeerId>,
     fault_count: u64,
 ) -> Vec<DistributeTBLSKey> {
-    let key_set = threshold_signature::generate_keypair_set(
-        fault_count as usize,
-        consensus_nodes.len() as usize,
-    );
+    let key_set =
+        threshold_blsttc::generate_keypair_set(fault_count as usize, consensus_nodes.len() as usize);
     key_set
         .keypair_shares
         .iter()

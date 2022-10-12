@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 
-use serde::{Serialize, Deserialize};
-use threshold_crypto::{serde_impl::SerdeSecret,
-    PublicKey, PublicKeySet, PublicKeyShare, SecretKeySet, SecretKeyShare, Signature,
-    SignatureShare,
-};
+use blsttc::serde_impl::SerdeSecret;
 
-
+use blsttc::{
+    PublicKeySet, PublicKeyShare, SecretKeySet, SecretKeyShare, Signature, SignatureShare,PublicKey, SecretKey}
+;
+use serde::{Deserialize, Serialize};
 
 pub struct ThresholdSigKeys {
     pub keypair_shares: Vec<(u64, SerdeSecret<SecretKeyShare>, PublicKeyShare)>,
@@ -24,7 +23,7 @@ pub struct TBLSKey {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TBLSSignature {
-    pub number: u64, 
+    pub number: u64,
     pub signature: SignatureShare,
 }
 
@@ -42,13 +41,15 @@ impl TBLSKey {
     }
 
     pub fn combine_partial_signatures(&self, sigs: &HashMap<u64, SignatureShare>) -> Signature {
-        self.pk_set.combine_signatures(sigs).expect("Combine partial signatures error!")
+        self.pk_set
+            .combine_signatures(sigs)
+            .expect("Combine partial signatures error!")
     }
 }
 
 pub fn generate_keypair_set(t: usize, n: usize) -> ThresholdSigKeys {
-    let mut rng = rand::thread_rng();
-    let sk_set = SecretKeySet::random(t, &mut rng);
+    // let mut rng = rand::thread_rng();
+    let sk_set = SecretKeySet::random(t, &mut rand::thread_rng());
     let pk_set = sk_set.public_keys();
     let sk_and_pk_shares: Vec<_> = (0..n)
         .map(|i| {
@@ -84,7 +85,7 @@ pub fn combine_partial_signatures(
 
 #[cfg(test)]
 mod threshold_sig_tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, time::SystemTime};
 
     use super::*;
     #[test]
@@ -131,22 +132,35 @@ mod threshold_sig_tests {
             println!("{}: {}", i, pk.verify(&sigs.get(&i).unwrap(), msg));
         }
 
-        // println!("1: {}", node_1_keys.1.verify(&sigs.get(&0).unwrap(), msg));
+        // let sys_time3 = SystemTime::now();
+        // // println!("1: {}", node_1_keys.1.verify(&sigs.get(&0).unwrap(), msg));
+        // let sys_time4 = SystemTime::now();
+        // let difference1 = sys_time2.duration_since(sys_time1);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("Verify time spent: {:?}", difference1);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
         // println!("2: {}", node_2_keys.1.verify(&sigs.get(&1).unwrap(), msg));
         // println!("3: {}", node_3_keys.1.verify(&sigs.get(&3).unwrap(), msg));
         // println!("4: {}", node_4_keys.1.verify(&sigs.get(&4).unwrap(), msg));
 
-        sigs.remove(&2);
-        sigs.remove(&5);
-        sigs.remove(&7);
-        sigs.remove(&0);
-        sigs.remove(&3);
-        sigs.remove(&6);
+        // sigs.remove(&2);
+        // sigs.remove(&5);
+        // sigs.remove(&7);
+        // sigs.remove(&0);
+        // sigs.remove(&3);
+        // sigs.remove(&6);
         for (i, sig) in &sigs {
             println!("{}|sig:[{:?}]|", i, &sig);
         }
 
+        let sys_time1 = SystemTime::now();
         let com_sig = combine_partial_signatures(&t_sig_keys.pk_set, &sigs);
+        let sys_time2 = SystemTime::now();
+
+        let difference = sys_time2.duration_since(sys_time1);
+        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        println!("Combined time spent: {:?}", difference);
+        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
         println!("Combined Signature: [{:?}]", &com_sig);
 
         println!("=============Threshold Signature Verification===========");

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use threshold_crypto::{PublicKeyShare, Signature, SignatureShare};
-use utils::crypto::threshold_signature::TBLSKey;
+use blsttc::{PublicKeyShare, Signature, SignatureShare};
+use utils::crypto::threshold_blsttc::TBLSKey;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum MessageType {

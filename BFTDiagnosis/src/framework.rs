@@ -8,14 +8,21 @@ use node::{
     analyzer::analyzer::Analyzer,
     basic_consensus_node::ConsensusNode,
     controller::controller::Controller,
-    example_consensus_node::{
-        test_log::TestLog, test_protocol::TestProtocol, test_state::TestState,
-    },
+    // example_consensus_node::{
+    //     test_log::TestLog, test_protocol::TestProtocol, test_state::TestState,
+    // },
+    internal_consensus::chain_hotstuff::protocol::ChainHotstuffProtocol,
+    internal_consensus::basic_hotstuff::protocol::BasicHotstuffProtocol,
+    internal_consensus::basic_hotstuff::test_log::TestLog,
+    internal_consensus::basic_hotstuff::test_state::TestState,
+    internal_consensus::non_timeout_pbft::protocol::NonTimeoutPBFTProtocol,
+    internal_consensus::non_authentication_pbft::protocol::NonAuthPBFTProtocol,
+    
 };
 use utils::parse::into_ip4_tcp_multiaddr;
 
 use crate::config::{read_analyzer_config, read_bft_diagnosis_config, read_controller_config};
-use std::error::Error;
+use std::{error::Error, process::Child};
 
 pub struct BFTDiagnosisFramework {
     // pub controller: Controller,
@@ -143,7 +150,7 @@ impl BFTDiagnosisFramework {
                 let is_leader = msg[2].parse::<bool>().unwrap();
                 println!("{}", is_leader);
 
-                let mut node: ConsensusNode<TestLog, TestState, TestProtocol> =
+                let mut node: ConsensusNode<TestLog, TestState, BasicHotstuffProtocol > =
                     ConsensusNode::new(local_peer, msg[0]);
                 self.client.consensus_run();
                 node.network_start(is_leader).await?;

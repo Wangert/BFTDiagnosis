@@ -5,7 +5,7 @@ use libp2p::PeerId;
 
 use utils::{
     coder,
-    crypto::threshold_signature::{self, TBLSKey},
+    crypto::threshold_blsttc::{self, TBLSKey},
 };
 
 use crate::message::{InteractiveMessage, Message};
@@ -22,7 +22,7 @@ pub fn generate_bls_keys(
     consensus_nodes: &HashMap<String, PeerId>,
     fault_count: u64,
 ) -> Vec<DistributeTBLSKey> {
-    let key_set = threshold_signature::generate_keypair_set(
+    let key_set = threshold_blsttc::generate_keypair_set(
         fault_count as usize,
         consensus_nodes.len() as usize,
     );
@@ -49,7 +49,10 @@ pub fn generate_bls_keys(
 pub fn generate_a_consensus_request_command() -> CommandMessage {
     let timestamp = Local::now().timestamp_nanos() as u64;
     let cmd = format!("{}{}", "wangjitao", timestamp);
-    let request = Request { cmd, timestamp};
+    let request = Request { cmd
+        , 
+        // timestamp
+    };
 
     let message = CommandMessage {
         command: Command::MakeAConsensusRequest(request),
@@ -60,10 +63,12 @@ pub fn generate_a_consensus_request_command() -> CommandMessage {
 
 pub fn generate_consensus_requests_command(size: usize) -> Message {
     let mut requests = vec![];
-    for _ in 0..size {
+    for i in 0..size {
         let timestamp = Local::now().timestamp_nanos() as u64;
-        let cmd = format!("{}{}", "wangjitao", timestamp);
-        let request = Request { cmd, timestamp };
+        let cmd = format!("{}{}", "Request_", i);
+        let request = Request { cmd, 
+            // timestamp
+         };
         requests.push(request);
     }
 

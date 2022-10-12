@@ -2,8 +2,8 @@ use std::{collections::HashMap, fmt::{Formatter, Result, Display}};
 
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use threshold_crypto::PublicKeyShare;
-use utils::crypto::threshold_signature::TBLSKey;
+use blsttc::PublicKeyShare;
+use utils::crypto::threshold_blsttc::TBLSKey;
 
 use crate::basic_consensus_node::{ConsensusNodeMode, ConfigureState};
 
@@ -184,7 +184,7 @@ impl From<Round> for String {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
 pub struct Request {
     pub cmd: String,
-    pub timestamp: u64,
+    // pub timestamp: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
