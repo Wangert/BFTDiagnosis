@@ -9,7 +9,7 @@ edition = "2021"
 libp2p = "0.43.0"
 serde = { version = "1.0.136", features = ["derive"]}
 toml = "0.5.9"
-node = { path = "../node" }
+components = { path = "../components" }
 cli = { path = "../cli" }
 network = { path = "../network" }
 utils = { path = "../utils" }

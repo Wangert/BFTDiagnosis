@@ -1,6 +1,6 @@
 use std::{fs::File, io::Read};
 
-use node::controller::config::BFTDiagnosisConfig;
+use components::controller::config::BFTDiagnosisConfig;
 use serde::Deserialize;
 
 // #[derive(Debug, Deserialize, Clone)]

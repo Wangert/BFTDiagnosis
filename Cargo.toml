@@ -5,8 +5,9 @@ members = [
     "core",
     "consensus",
     "network",
-    "node",
+    "components",
     "storage",
     "utils",
+    "protocols",
     "BFTDiagnosis",
 ]
