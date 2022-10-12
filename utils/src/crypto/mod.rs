@@ -1,3 +1,2 @@
-pub mod threshold_signature;
 pub mod eddsa;
-pub mod blsttc;
+pub mod threshold_blsttc;

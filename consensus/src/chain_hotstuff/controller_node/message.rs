@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use libp2p::PeerId;
 use serde::{Serialize, Deserialize};
-use threshold_crypto::{PublicKeyShare, SignatureShare, Signature};
-use utils::crypto::threshold_signature::TBLSKey;
+use blsttc::{PublicKeyShare, SignatureShare, Signature};
+use utils::crypto::threshold_blsttc::TBLSKey;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum MessageType {

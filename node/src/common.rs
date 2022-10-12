@@ -5,7 +5,7 @@ use libp2p::PeerId;
 
 use utils::{
     coder,
-    crypto::blsttc::{self, TBLSKey},
+    crypto::threshold_blsttc::{self, TBLSKey},
 };
 
 use crate::message::{InteractiveMessage, Message};
@@ -22,7 +22,7 @@ pub fn generate_bls_keys(
     consensus_nodes: &HashMap<String, PeerId>,
     fault_count: u64,
 ) -> Vec<DistributeTBLSKey> {
-    let key_set = blsttc::generate_keypair_set(
+    let key_set = threshold_blsttc::generate_keypair_set(
         fault_count as usize,
         consensus_nodes.len() as usize,
     );

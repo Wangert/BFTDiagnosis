@@ -8,7 +8,7 @@ use tokio::sync::{
 };
 use utils::{
     coder::{self},
-    crypto::threshold_signature::TBLSKey,
+    crypto::threshold_blsttc::TBLSKey,
 };
 
 use crate::chain_hotstuff::consensus_node::state::Mode;

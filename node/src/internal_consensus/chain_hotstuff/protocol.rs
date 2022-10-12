@@ -25,7 +25,7 @@ use std::{
 };
 use blsttc::SignatureShare;
 use tokio::sync::{Mutex, Notify};
-use utils::{coder, crypto::blsttc::TBLSKey};
+use utils::{coder, crypto::threshold_blsttc::TBLSKey};
 
 use super::common::get_block_hash;
 use crate::internal_consensus::chain_hotstuff::message::Mode;

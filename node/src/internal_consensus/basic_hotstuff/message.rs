@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use blsttc::{PublicKeyShare, Signature, SignatureShare};
-use utils::crypto::blsttc::TBLSKey;
+use utils::crypto::threshold_blsttc::TBLSKey;
 use crate::message::Request;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum MessageType {

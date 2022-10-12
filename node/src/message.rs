@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::{Formatter, Result, Display}};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use blsttc::PublicKeyShare;
-use utils::crypto::blsttc::TBLSKey;
+use utils::crypto::threshold_blsttc::TBLSKey;
 
 use crate::basic_consensus_node::{ConsensusNodeMode, ConfigureState};
 

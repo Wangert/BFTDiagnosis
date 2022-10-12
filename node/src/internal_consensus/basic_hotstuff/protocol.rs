@@ -34,7 +34,7 @@ use tokio::{
     sync::{Mutex, Notify},
     time::Sleep,
 };
-use utils::{coder, crypto::blsttc::TBLSKey};
+use utils::{coder, crypto::threshold_blsttc::TBLSKey};
 
 use super::common::get_block_hash;
 
