@@ -11,15 +11,22 @@ use components::{
     // example_consensus_node::{
     //     test_log::TestLog, test_protocol::TestProtocol, test_state::TestState,
     // },
-    internal_consensus::chain_hotstuff::protocol::ChainHotstuffProtocol,
-    internal_consensus::basic_hotstuff::protocol::BasicHotstuffProtocol,
+    // internal_consensus::chain_hotstuff::protocol::ChainHotstuffProtocol,
+    // internal_consensus::basic_hotstuff::protocol::BasicHotstuffProtocol,
     internal_consensus::basic_hotstuff::test_log::TestLog,
     internal_consensus::basic_hotstuff::test_state::TestState,
-    internal_consensus::non_timeout_pbft::protocol::NonTimeoutPBFTProtocol,
-    internal_consensus::non_authentication_pbft::protocol::NonAuthPBFTProtocol,
-    
+    // internal_consensus::non_timeout_pbft::protocol::NonTimeoutPBFTProtocol,
+    // internal_consensus::non_authentication_pbft::protocol::NonAuthPBFTProtocol,
+    // 
 };
 use utils::parse::into_ip4_tcp_multiaddr;
+
+use protocols::{
+    basic_hotstuff::protocol::BasicHotstuffProtocol,
+    non_authenticated_pbft::protocol::NonAuthPBFTProtocol,
+    non_viewchange_pbft::protocol::NonTimeoutPBFTProtocol,
+    chain_hotstuff::protocol::ChainHotstuffProtocol,
+};
 
 use crate::config::{read_analyzer_config, read_bft_diagnosis_config, read_controller_config};
 use std::{error::Error, process::Child};
@@ -132,10 +139,6 @@ impl BFTDiagnosisFramework {
                 let msg: Vec<_> = values.collect();
 
                 println!("{}", msg[0]);
-                // let data = msg[0].split_at(msg[0].len() - 1);
-                // let data = data.0.split_at(1);
-                // println!("{}", data.1);
-                // println!("{:?}", ip);
 
                 let swarm_addr = into_ip4_tcp_multiaddr(
                     msg[0],
@@ -150,7 +153,7 @@ impl BFTDiagnosisFramework {
                 let is_leader = msg[2].parse::<bool>().unwrap();
                 println!("{}", is_leader);
 
-                let mut node: ConsensusNode<TestLog, TestState, BasicHotstuffProtocol > =
+                let mut node: ConsensusNode<TestLog, TestState, ChainHotstuffProtocol > =
                     ConsensusNode::new(local_peer, msg[0]);
                 self.client.consensus_run();
                 node.network_start(is_leader).await?;

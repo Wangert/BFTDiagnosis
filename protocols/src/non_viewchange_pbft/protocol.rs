@@ -30,7 +30,6 @@ pub struct NonTimeoutPBFTProtocol {
     pub state: State,
     pub log: Box<ConsensusLog>,
     pub taken_requests: HashSet<Vec<u8>>,
-    // pub db: Box<LevelDB>,
     pub keypair: Box<EdDSAKeyPair>,
     pub viewchange_notify: Arc<Notify>,
     
@@ -44,7 +43,6 @@ impl Default for NonTimeoutPBFTProtocol {
         Self {
             state: State::new(Duration::from_secs(5)),
             log: Box::new(ConsensusLog::new()),
-            // db: Box::new(LevelDB::new(db_path)),
             keypair: Box::new(EdDSAKeyPair::new()),
             
             viewchange_notify: Arc::new(Notify::new()),

@@ -53,7 +53,7 @@ impl Default for NonAuthPBFTProtocol {
 
 impl NonAuthPBFTProtocol {
     fn handle_request(&mut self, current_peer_id: &[u8], request: &Request) -> PhaseState {
-        self.taken_requests.insert(coder::serialize_into_json_bytes(request));
+        self.taken_requests.insert(coder::serialize_into_bytes(request));
         let mut send_query = VecDeque::new();
         self.state.primary = current_peer_id.to_vec();
         println!("******************* Handle request *******************");
@@ -77,8 +77,6 @@ impl NonAuthPBFTProtocol {
             m: serialized_request,
             from_peer_id: current_peer_id.to_vec(),
         };
-
-        
 
         let broadcast_msg = ConsensusMessage {
             msg_type: MessageType::PrePrepare(preprepare),
