@@ -861,7 +861,6 @@ impl ProtocolBehaviour for ChainHotstuffProtocol {
         &mut self,
         consensus_nodes: HashSet<PeerId>,
         current_peer_id: Vec<u8>,
-        analyzer_id: String,
     ) -> PhaseState {
         let mut map: HashMap<String, PeerId> = HashMap::new();
         consensus_nodes.iter().for_each(|i| {
@@ -871,7 +870,7 @@ impl ProtocolBehaviour for ChainHotstuffProtocol {
         self.peer_id = PeerId::from_bytes(&current_peer_id.clone())
             .expect("Found invalid UTF-8")
             .to_string();
-        self.analyzer_id = PeerId::from_str(analyzer_id.as_str()).expect("error");
+        
         let data =
             self.distribute_keys(PeerId::from_bytes(&current_peer_id.clone()).expect("Error"));
         return data;

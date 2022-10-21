@@ -1006,7 +1006,7 @@ where
                                 println!("The set is {:?}",set.clone());
                                 let peer = self.peer_id().to_bytes();
                                 let analyzer_id = self.analyzer_id;
-                                let msg = self.protocol_mut().extra_initial_start(set,peer,analyzer_id.unwrap().to_string());
+                                let msg = self.protocol_mut().extra_initial_start(set,peer,);
                                 self.check_protocol_phase_state(msg).await;
 
                             }

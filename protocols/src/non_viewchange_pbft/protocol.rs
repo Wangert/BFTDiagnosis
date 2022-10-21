@@ -32,7 +32,7 @@ pub struct NonTimeoutPBFTProtocol {
     pub taken_requests: HashSet<Vec<u8>>,
     pub keypair: Box<EdDSAKeyPair>,
     pub viewchange_notify: Arc<Notify>,
-    
+    pub phase_map: HashMap<u8,String>,
     pub timeout_notify: Arc<Notify>,
 
     pub consensus_node_pk: HashMap<Vec<u8>, Vec<u8>>,
@@ -44,7 +44,7 @@ impl Default for NonTimeoutPBFTProtocol {
             state: State::new(Duration::from_secs(5)),
             log: Box::new(ConsensusLog::new()),
             keypair: Box::new(EdDSAKeyPair::new()),
-            
+            phase_map: HashMap::new(),
             viewchange_notify: Arc::new(Notify::new()),
             timeout_notify: Arc::new(Notify::new()),
             consensus_node_pk: HashMap::new(),
@@ -69,12 +69,11 @@ impl NonTimeoutPBFTProtocol {
         self.state.primary = current_peer_id.to_vec();
 
         println!("******************* Handle request *******************");
-
         // create PrePrepare message
         let view = self.state.view;
         let seq_number = self.state.current_sequence_number + 1;
 
-        let serialized_request = coder::serialize_into_bytes(&request);
+        let serialized_request = coder::serialize_into_json_bytes(&request);
         self.log.record_request(seq_number, &request.clone());
         let request = self.log.get_local_request_by_sequence_number(seq_number);
         println!("################# Current Request Messages #################");
@@ -101,9 +100,7 @@ impl NonTimeoutPBFTProtocol {
             msg_type: MessageType::PrePrepare(preprepare),
         };
 
-        let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-        //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
-
+        let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
         send_query.push_back(SendType::Broadcast(serialized_msg));
         PhaseState::ContinueExecute(send_query)
     }
@@ -112,7 +109,7 @@ impl NonTimeoutPBFTProtocol {
         current_peer_id: &[u8],
         msg: &PrePrepare,
     ) -> PhaseState {
-        let request:Request = coder::deserialize_for_bytes(&msg.m);
+        let request:Request = coder::deserialize_for_json_bytes(&msg.m);
         self.taken_requests.insert(coder::serialize_into_bytes(&request));
         let mut send_query = VecDeque::new();
 
@@ -156,7 +153,7 @@ impl NonTimeoutPBFTProtocol {
 
         // record request message
         let serialized_request = msg.m.clone();
-        let m: Request = coder::deserialize_for_bytes(&serialized_request[..]);
+        let m: Request = coder::deserialize_for_json_bytes(&serialized_request[..]);
         self.log.record_request(msg.number, &m);
         let request = self.log.get_local_request_by_sequence_number(msg.number);
 
@@ -195,9 +192,7 @@ impl NonTimeoutPBFTProtocol {
             msg_type: MessageType::Prepare(prepare),
         };
 
-        let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-        //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
-
+        let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
         // broadcast prepare message
         
         send_query.push_back(SendType::Broadcast(serialized_msg));
@@ -301,9 +296,7 @@ impl NonTimeoutPBFTProtocol {
                 msg_type: MessageType::Commit(commit),
             };
 
-            let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-            //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
-
+            let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
             // broadcast commit message
             
             send_query.push_back(SendType::Broadcast(serialized_msg));
@@ -409,12 +402,7 @@ impl NonTimeoutPBFTProtocol {
             let cmd = m.cmd;
             let view = self.state.view;
             let seq_number = msg.number;
-            // let client_id = m.client_id;
-            // let timestamp = m.timestamp;
-            // let timestamp_clone = timestamp.clone();
             let mut reply = Reply {
-                // client_id,
-                // timestamp: timestamp.clone(),
                 number: seq_number,
                 from_peer_id: current_peer_id.to_vec(),
                 signature: vec![],
@@ -431,22 +419,18 @@ impl NonTimeoutPBFTProtocol {
             let broadcast_msg = ConsensusMessage {
                 msg_type: MessageType::Reply(reply),
             };
-            let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
+            let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
             // Send Reply message to client
             
             send_query.push_back(SendType::Unicast(PeerId::from_bytes(&self.state.primary).expect("msg"), serialized_msg));
 
             let request = Request {
                 cmd:cmd.clone(),
-                // timestamp:timestamp.clone(),
             };
             let msg = ConsensusMessage {
                 msg_type: MessageType::Request(request.clone()),
             };
-            let message = coder::serialize_into_bytes(&msg);
 
-
-            
             self.log.reset();
             return PhaseState::Complete(request, send_query);
             
@@ -500,11 +484,9 @@ impl NonTimeoutPBFTProtocol {
         println!("current_cous is : {:?},threshold is : {:?}",current_count,reply_threshold);
         if current_count as u64 == reply_threshold {
             println!("满足条件，发送切换requets‘");
-            // self.state.client_state = ClientState::Replied;
 
             let request = Request {
                 cmd: msg.clone().cmd,
-                // timestamp: msg.clone().timestamp,
             };
 
             let data = ConsensusMessage{
@@ -576,7 +558,7 @@ impl NonTimeoutPBFTProtocol {
         let msg = ConsensusMessage {
             msg_type: MessageType::PublicKey(public_key),
         };
-        let serialized_msg = coder::serialize_into_bytes(&msg);
+        let serialized_msg = coder::serialize_into_json_bytes(&msg);
         // self.msg_tx.send(serialized_msg).await.unwrap();]
         
         send_query.push_back(SendType::Broadcast(serialized_msg));
@@ -608,7 +590,6 @@ impl ProtocolBehaviour for NonTimeoutPBFTProtocol {
         &mut self,
         consensus_nodes: HashSet<PeerId>,
         current_peer_id: Vec<u8>,
-        analyzer_id: String,
     ) -> PhaseState {
         self.state.primary = current_peer_id.clone();
         let mut send_query = VecDeque::new();
@@ -616,7 +597,7 @@ impl ProtocolBehaviour for NonTimeoutPBFTProtocol {
         let msg = ConsensusMessage {
             msg_type: MessageType::DistributePK,
         };
-        let serialized_msg = coder::serialize_into_bytes(&msg);
+        let serialized_msg = coder::serialize_into_json_bytes(&msg);
         
         send_query.push_back(SendType::Broadcast(serialized_msg));
 
@@ -637,7 +618,7 @@ impl ProtocolBehaviour for NonTimeoutPBFTProtocol {
         current_peer_id: Vec<u8>,
         peer_id: Option<PeerId>,
     ) -> PhaseState {
-        let message: ConsensusMessage = coder::deserialize_for_bytes(_msg);
+        let message: ConsensusMessage = coder::deserialize_for_json_bytes(_msg);
         match message.msg_type {
             MessageType::Request(msg) => {
                 return self.handle_request(&current_peer_id, &msg)
@@ -686,6 +667,8 @@ impl ProtocolBehaviour for NonTimeoutPBFTProtocol {
         }
     }
 
+
+
     fn receive_consensus_requests(
         &mut self,
         requests: Vec<Request>,
@@ -702,9 +685,59 @@ impl ProtocolBehaviour for NonTimeoutPBFTProtocol {
         let msg = ConsensusMessage {
             msg_type: MessageType::Request(request.to_owned()),
         };
-        let data = coder::serialize_into_bytes(&msg);
+        let data = coder::serialize_into_json_bytes(&msg);
         data
     }
+
+    fn phase_map(&self) -> HashMap<u8,String> {
+        self.phase_map.clone()
+    }
+
+    fn protocol_phases(&mut self) -> HashMap<u8, Vec<u8>> {
+        let mut hash_map = HashMap::new();
+        let prepare = Prepare {
+            view: 1,
+            number: 1,
+            m_hash: String::from(""),
+            from_peer_id: vec![],
+            signature: vec![],
+        };
+        let commit = Commit {
+            view: 1,
+            number: 2,
+            m_hash: String::from(""),
+            from_peer_id: vec![],
+            signature: vec![],
+        };
+        let prepare_json = coder::serialize_into_json_str(&prepare).as_bytes().to_vec();
+        let commit_json = coder::serialize_into_json_str(&commit).as_bytes().to_vec();
+        hash_map.insert(1, prepare_json);
+        hash_map.insert(2, commit_json);
+        
+        self.phase_map.insert(1, String::from("Prepare"));
+        self.phase_map.insert(2, String::from("Commit"));
+
+        hash_map
+    }
+
+    fn get_current_phase(&mut self, _msg: &[u8]) -> u8 {
+        if _msg.len() == 0 {
+            return 0
+        }
+        else {
+            let data: ConsensusMessage = coder::deserialize_for_json_bytes(_msg);
+        let i = match data.msg_type {
+            MessageType::Request(_) => 0,
+            MessageType::PrePrepare(_) => 0,
+            MessageType::Prepare(_) => 1,
+            MessageType::Commit(_) => 2,
+            MessageType::Reply(_) => 0,
+            _ => 0
+        };
+        return i;
+        }
+    }
+
 
 
 

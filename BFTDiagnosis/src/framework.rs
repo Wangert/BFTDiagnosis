@@ -29,11 +29,9 @@ use protocols::{
 };
 
 use crate::config::{read_analyzer_config, read_bft_diagnosis_config, read_controller_config};
-use std::{error::Error, process::Child};
+use std::error::Error;
 
 pub struct BFTDiagnosisFramework {
-    // pub controller: Controller,
-    // pub analyzer: Analyzer,
     client: Client,
 }
 
@@ -61,8 +59,6 @@ impl BFTDiagnosisFramework {
             let swarm_addr =
                 into_ip4_tcp_multiaddr(controller_ip_addr.as_str(), controller_ip_port);
             let local_peer = Peer::new(swarm_addr);
-
-            // let mut node = Node::new(Box::new(local_peer), &args.swarm_port.to_string());
 
             let mut node = Controller::new(
                 local_peer,
@@ -120,8 +116,6 @@ impl BFTDiagnosisFramework {
             let swarm_addr = into_ip4_tcp_multiaddr(analyzer_ip_addr.as_str(), analyzer_ip_port);
             let local_peer = Peer::new(swarm_addr);
 
-            // let mut node = Node::new(Box::new(local_peer), &args.swarm_port.to_string());
-
             let mut node = Analyzer::new(
                 local_peer,
                 performance_test_duration,
@@ -153,7 +147,7 @@ impl BFTDiagnosisFramework {
                 let is_leader = msg[2].parse::<bool>().unwrap();
                 println!("{}", is_leader);
 
-                let mut node: ConsensusNode<TestLog, TestState, ChainHotstuffProtocol > =
+                let mut node: ConsensusNode<TestLog, TestState, NonTimeoutPBFTProtocol > =
                     ConsensusNode::new(local_peer, msg[0]);
                 self.client.consensus_run();
                 node.network_start(is_leader).await?;

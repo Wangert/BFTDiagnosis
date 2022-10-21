@@ -30,14 +30,10 @@ pub struct PBFTProtocol {
     pub state: State,
     pub log: Box<ConsensusLog>,
     pub taken_requests: HashSet<Vec<u8>>,
-    // pub db: Box<LevelDB>,
     pub keypair: Box<EdDSAKeyPair>,
     pub viewchange_notify: Arc<Notify>,
-    
     pub timeout_notify: Arc<Notify>,
-
     pub consensus_node_pk: HashMap<Vec<u8>, Vec<u8>>,
-
     pub view_timeout_notify: Arc<Notify>,
     pub view_timeout_stop_notify: Arc<Notify>,
     pub current_view_timeout: u64,
@@ -48,14 +44,11 @@ impl Default for PBFTProtocol {
         Self {
             state: State::new(Duration::from_secs(5)),
             log: Box::new(ConsensusLog::new()),
-            // db: Box::new(LevelDB::new(db_path)),
             keypair: Box::new(EdDSAKeyPair::new()),
-            
             viewchange_notify: Arc::new(Notify::new()),
             timeout_notify: Arc::new(Notify::new()),
             consensus_node_pk: HashMap::new(),
             taken_requests: HashSet::new(),
-
             view_timeout_notify: Arc::new(Notify::new()),
             view_timeout_stop_notify: Arc::new(Notify::new()),
             current_view_timeout: 10,
@@ -70,8 +63,6 @@ impl PBFTProtocol {
         let timeout_notify = self.view_timeout_notify.clone();
         let stop_notify = self.view_timeout_stop_notify.clone();
         let current_timeout = Duration::from_secs(self.current_view_timeout);
-        // let is_primary = self.state.is_primary.clone();
-        //let mode = self.mode.clone();
         println!("Current view timeout: {}", self.current_view_timeout);
         tokio::spawn(async move {
             if let Err(_) = tokio::time::timeout(current_timeout, stop_notify.notified()).await {
@@ -167,7 +158,6 @@ impl PBFTProtocol {
         };
 
         let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-        //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
 
         send_query.push_back(SendType::Broadcast(serialized_msg));
         PhaseState::ContinueExecute(send_query)
@@ -184,7 +174,6 @@ impl PBFTProtocol {
         self.state.primary = msg.clone().from_peer_id;
 
         println!("*******************Handle Preprepare*******************");
-
 
         let key_str = get_message_key(&MessageType::PrePrepare(msg.clone()));
         let source_pk = self.get_public_key_by_peer_id(&msg.from_peer_id);
@@ -261,8 +250,6 @@ impl PBFTProtocol {
         };
 
         let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-        //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
-
         // broadcast prepare message
         
         send_query.push_back(SendType::Broadcast(serialized_msg));
@@ -736,7 +723,6 @@ impl ProtocolBehaviour for PBFTProtocol {
         &mut self,
         consensus_nodes: HashSet<PeerId>,
         current_peer_id: Vec<u8>,
-        analyzer_id: String,
     ) -> PhaseState {
         let mut send_query = VecDeque::new();
         self.state.node_count = consensus_nodes.len() as u64;

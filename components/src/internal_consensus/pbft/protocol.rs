@@ -736,7 +736,6 @@ impl ProtocolBehaviour for PBFTProtocol {
         &mut self,
         consensus_nodes: HashSet<PeerId>,
         current_peer_id: Vec<u8>,
-        analyzer_id: String,
     ) -> PhaseState {
         let mut send_query = VecDeque::new();
         self.state.node_count = consensus_nodes.len() as u64;

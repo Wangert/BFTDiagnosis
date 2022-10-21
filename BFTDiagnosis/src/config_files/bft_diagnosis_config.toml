@@ -3,7 +3,7 @@
 enable = false
 
 [latency]
-enable = true
+enable = false
 
 [scalability]
 enable = false
@@ -16,17 +16,17 @@ enable = false
 max = 10
 
 [malicious]
-enable = false
-number_of_phase = 3
+enable = true
+number_of_phase = 2
 # optional behaviours:
 # LeaderFeignDeath
 # LeaderSendAmbiguousMessage
 # LeaderDelaySendMessage
 # ReplicaNodeConspireForgeMessages
 behaviours = [
-    "LeaderFeignDeath", 
+    # "LeaderFeignDeath", 
     # "LeaderSendAmbiguousMessage", 
     # "LeaderDelaySendMessage",
-    # "LeaderSendDuplicateMessage", 
+    "LeaderSendDuplicateMessage", 
     # "ReplicaNodeConspireForgeMessages"
     ]

@@ -425,7 +425,6 @@ impl ProtocolBehaviour for NonAuthPBFTProtocol {
         &mut self,
         consensus_nodes: HashSet<PeerId>,
         current_peer_id: Vec<u8>,
-        analyzer_id: String,
     ) -> PhaseState {
         self.state.primary = current_peer_id.clone();
         let mut send_query = VecDeque::new();
