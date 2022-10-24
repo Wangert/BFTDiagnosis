@@ -632,18 +632,16 @@ impl PBFTProtocol {
         println!("cerren key is : {:?}",key_str.clone());
         println!("current_cous is : {:?},threshold is : {:?}",current_count,reply_threshold);
         if current_count as u64 == reply_threshold {
-            println!("满足条件，发送切换requets‘");
+            // println!("满足条件，发送切换requets‘");
 
-            let request = Request {
-                cmd: msg.clone().cmd,
-            };
+            // let request = Request {
+            //     cmd: msg.clone().cmd,
+            // };
 
-            let data = ConsensusMessage{
-                msg_type: MessageType::Request(request.clone()),
-            };
+            // let data = ConsensusMessage{
+            //     msg_type: MessageType::Request(request.clone()),
+            // };
             
-
-        
             let result_str = std::str::from_utf8(&msg.result[..]).unwrap();
             println!("###############################################################");
             println!("Request consesnus successful, result is {}", result_str);
@@ -657,7 +655,7 @@ impl PBFTProtocol {
     }
 
     fn handle_checkpoint(&mut self, _current_peer_id: &[u8], msg: &CheckPoint) -> PhaseState {
-        let mut send_query = VecDeque::new();
+        let send_query = VecDeque::new();
         // verify signature
 
         self.log
@@ -710,7 +708,7 @@ impl PBFTProtocol {
         &mut self,
         public_key: &PublicKey,
     ) -> PhaseState {
-        let mut send_query = VecDeque::new();
+        let send_query = VecDeque::new();
         
         println!("*********************** storage_public_key_by_peer_id  ****************************");
         let value = public_key.clone().pk.clone().0;
@@ -756,7 +754,7 @@ impl ProtocolBehaviour for PBFTProtocol {
         &mut self,
         _msg: &[u8],
         current_peer_id: Vec<u8>,
-        peer_id: Option<PeerId>,
+        _peer_id: Option<PeerId>,
     ) -> PhaseState {
         let message: ConsensusMessage = coder::deserialize_for_json_bytes(_msg);
         match message.msg_type {
@@ -792,9 +790,9 @@ impl ProtocolBehaviour for PBFTProtocol {
             }
         }
 
-        let mut queue = VecDeque::new();
-        queue.push_back(SendType::Broadcast(vec![]));
-        PhaseState::ContinueExecute(queue)
+        // let mut queue = VecDeque::new();
+        // queue.push_back(SendType::Broadcast(vec![]));
+        // PhaseState::ContinueExecute(queue)
     }
 
     fn check_taken_request(&self,request:Vec<u8>) -> bool {
@@ -808,14 +806,14 @@ impl ProtocolBehaviour for PBFTProtocol {
 
     fn receive_consensus_requests(
         &mut self,
-        requests: Vec<Request>,
+        _requests: Vec<Request>,
     ) {
         todo!()
     }
 
     // fn view_timeout_handler(&mut self) {}
 
-    fn init_timeout_notify(&mut self, tiemout_notify: Arc<Notify>) {
+    fn init_timeout_notify(&mut self, _tiemout_notify: Arc<Notify>) {
     }
 
     fn generate_serialized_request_message(&self, request: &Request) -> Vec<u8> {

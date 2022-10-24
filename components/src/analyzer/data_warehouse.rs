@@ -1,9 +1,9 @@
-use std::{collections::HashMap, hash::Hash};
+use std::collections::HashMap;
 
 use chrono::Local;
 use libp2p::PeerId;
 use mysql::{params, prelude::Queryable, PooledConn};
-use network::peer::Peer;
+
 use storage::mysql_db::MysqlDB;
 
 use crate::{
@@ -280,7 +280,7 @@ impl DataWarehouse {
         self.throughput_internal = internal;
     }
 
-    pub fn store_consensus_start_data(&mut self, origin_peer_id: PeerId, data: ConsensusStartData) {
+    pub fn store_consensus_start_data(&mut self, _origin_peer_id: PeerId, data: ConsensusStartData) {
         let request_hash = get_request_hash(&data.request);
         self.t_start_data.insert(request_hash.clone(), data.clone());
         self.l_start_data.insert(request_hash.clone(), data.clone());
@@ -291,7 +291,8 @@ impl DataWarehouse {
         let request_hash = get_request_hash(&data.request);
         self.t_end_data
             .insert((origin_peer_id, request_hash.clone()), data.clone());
-        self.l_end_data.insert((origin_peer_id, request_hash.clone()), data.clone());
+        self.l_end_data
+            .insert((origin_peer_id, request_hash.clone()), data.clone());
         self.s_end_data.insert((origin_peer_id, request_hash), data);
     }
 
@@ -318,7 +319,7 @@ impl DataWarehouse {
         // let current_time = 30;
 
         let data_computing = self.t_end_data_computing.clone();
-        println!("throughout:{:?}",data_computing.clone());
+        println!("throughout:{:?}", data_computing.clone());
         data_computing.iter().for_each(|(k, _)| {
             if let Some(_) = self.t_start_data_computing.get(&k.1) {
                 self.update_request_count_with_peer(k.0);
@@ -326,7 +327,10 @@ impl DataWarehouse {
                 self.t_end_data_computing.remove(k);
             }
         });
-        println!("self.throughput_mid_results:{:?}",self.throughput_mid_results.clone());
+        println!(
+            "self.throughput_mid_results:{:?}",
+            self.throughput_mid_results.clone()
+        );
         let index = self.internal_round;
         self.internal_round += 1;
         let throughput_mid_results = self.throughput_mid_results.clone();
@@ -362,25 +366,24 @@ impl DataWarehouse {
         let data_computing = self.l_end_data_computing.clone();
         data_computing.iter().for_each(|(k, end_data)| {
             if let Some(start_data) = self.l_start_data_computing.get(&k.1) {
-                println!("latency{},{}",end_data.completed_time.clone(),start_data.start_time);
+                println!(
+                    "latency{},{}",
+                    end_data.completed_time.clone(),
+                    start_data.start_time
+                );
                 // let latency = (end_data.completed_time as u64 - start_data.start_time as u64);
                 let latency = end_data.completed_time.wrapping_sub(start_data.start_time);
                 if latency > 100000 {
-                    
-                }
-                else {
+                } else {
                     // let latency_result = LatencyResult {
-                //     request: start_data.request.clone(),
-                //     latency,
-                // };
-                let r = start_data.clone().request;
-                self.insert_latency_result(&k.0, &r, latency);
-                // self.store_latency_result(k.0, latency_result);
-                self.l_end_data_computing.remove(k);
+                    //     request: start_data.request.clone(),
+                    //     latency,
+                    // };
+                    let r = start_data.clone().request;
+                    self.insert_latency_result(&k.0, &r, latency);
+                    // self.store_latency_result(k.0, latency_result);
+                    self.l_end_data_computing.remove(k);
                 }
-                
-                
-                
             }
         });
 
@@ -410,7 +413,7 @@ impl DataWarehouse {
                 self.t_end_data_computing.remove(k);
             }
         });
-        
+
         let index = self.internal_round;
         self.internal_round += 1;
         let throughput_mid_results = self.throughput_mid_results.clone();
@@ -472,7 +475,7 @@ impl DataWarehouse {
         self.l_end_data_computing.clear();
     }
 
-    pub fn compute_scalability(&mut self, node_count: u16, item: &TestItem) {
+    pub fn compute_scalability(&mut self, _node_count: u16, item: &TestItem) {
         self.compute_scalability_latency(item);
         self.compute_scalability_throughput(item);
 
@@ -520,7 +523,7 @@ impl DataWarehouse {
 
         let data = self.s_end_data.clone();
         data.iter().for_each(|(k, end_data)| {
-            if let Some(start_data) = self.s_start_data.get(&k.1) {
+            if let Some(_start_data) = self.s_start_data.get(&k.1) {
                 // let crash_result = CrashResult {
                 //     request_cmd: end_data.request.cmd.clone(),
                 //     timestamp: end_data.completed_time as u64,
@@ -539,18 +542,6 @@ impl DataWarehouse {
                 // DataWarehouse::store_crash_result(&mut crash_results, &k.0, crash_result);
             };
         });
-
-        // let c_end_data_clone = self.c_end_data.clone();
-        // let c_end_data_clone_iter = c_end_data_clone.iter();
-        // let c_end_data = &mut self.c_end_data;
-        // c_end_data_clone_iter.for_each(|(k, v)| {
-        //     let crash_result = CrashResult {
-        //         request_cmd: v.request.cmd.clone(),
-        //         timestamp: v.completed_time as u64,
-        //     };
-        //     DataWarehouse::store_crash_result(&mut crash_results, &k.0, crash_result);
-        //     c_end_data.remove(k);
-        // });
 
         self.crash_results.insert(crash_count, crash_results);
     }
@@ -770,7 +761,10 @@ impl DataWarehouse {
 
     pub fn query_latency_results(&mut self, start: u64, count: u64) -> Vec<(String, Request, u64)> {
         let mut conn = self.mysql_conn();
-        let sql = format!("SELECT peer_id, request_cmd, latency FROM latency_results LIMIT {},{}", start, count);
+        let sql = format!(
+            "SELECT peer_id, request_cmd, latency FROM latency_results LIMIT {},{}",
+            start, count
+        );
 
         let results = conn
             .query_map(sql, |(peer_id, request_cmd, latency)| {

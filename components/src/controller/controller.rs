@@ -22,7 +22,7 @@ use network::{
     peer::Peer,
 };
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 use tokio::{
     sync::{
         mpsc::{self, Receiver, Sender},
@@ -32,27 +32,26 @@ use tokio::{
 };
 use trees::Tree;
 use utils::{
-    coder::{self, serialize_into_bytes},
+    coder::{self},
     parse::map_into_string_tree,
 };
 
 use crate::{
-    basic_consensus_node::{ConfigureState, ConsensusNodeMode, MaliciousMode},
-    common::{generate_bls_keys, generate_consensus_requests_command},
+    common::generate_consensus_requests_command,
     message::{
-        Command, CommandMessage, Component, ConsensusNodePKInfo, InteractiveMessage,
-        MaliciousBehaviour, Message, Request, Round, TestItem,
+        Component, InteractiveMessage, MaliciousBehaviour, Message, Request, Round, TestItem,
     },
+    protocol_actuator::{ConfigureState, ConsensusNodeMode, MaliciousMode},
 };
 
 use clap::{ArgMatches, Command as clap_Command};
 
-use super::{config::BFTDiagnosisConfig, executor::Executor};
+use super::config::BFTDiagnosisConfig;
 
 pub struct Controller {
     id: PeerId,
     peer: Peer,
-    executor: Executor,
+    // executor: Executor,
     connected_nodes: HashMap<String, PeerId>,
 
     consensus_nodes: HashSet<PeerId>,
@@ -96,16 +95,16 @@ pub struct Controller {
 }
 
 impl Controller {
-    pub fn new(peer: Peer, port: &str, conspire_duration: u64) -> Self {
-        let db_path = format!("./storage/data/{}_public_keys", port);
-        let executor = Executor::new(&db_path);
+    pub fn new(peer: Peer, _port: &str, conspire_duration: u64) -> Self {
+        // let db_path = format!("./storage/data/{}_public_keys", port);
+        // let executor = Executor::new(&db_path);
         let (args_sender, args_recevier) = mpsc::channel::<Vec<String>>(10);
 
         let matches = CONTROLLER_CMD.clone().get_matches();
         Self {
             id: peer.id,
             peer,
-            executor,
+            // executor,
             connected_nodes: HashMap::new(),
 
             consensus_nodes: HashSet::new(),
@@ -298,9 +297,9 @@ impl Controller {
         &mut self.peer
     }
 
-    pub fn executor_mut(&mut self) -> &mut Executor {
-        &mut self.executor
-    }
+    // pub fn executor_mut(&mut self) -> &mut Executor {
+    //     &mut self.executor
+    // }
 
     pub fn conspire_notify(&self) -> Arc<Notify> {
         self.consipre_notify.clone()
@@ -430,56 +429,56 @@ impl Controller {
     }
 
     // Assign keys to consensus nodes and send all consensus node public keys to each consensus node
-    pub fn assign_key_to_consensus_node(&mut self) {
-        let distribute_tbls_key_vec = generate_bls_keys(&self.connected_nodes, 1);
+    // pub fn assign_key_to_consensus_node(&mut self) {
+    //     let distribute_tbls_key_vec = generate_bls_keys(&self.connected_nodes, 1);
 
-        println!("key count: {}", distribute_tbls_key_vec.len());
-        let key = distribute_tbls_key_vec[0].tbls_key.clone();
-        let key_msg = CommandMessage {
-            command: Command::AssignTBLSKeypair(key),
-        };
-        let serialized_key = coder::serialize_into_bytes(&key_msg);
-        println!("{:?}", serialized_key);
-        let de_key: CommandMessage = coder::deserialize_for_bytes(&serialized_key);
-        println!("{:#?}", de_key);
+    //     println!("key count: {}", distribute_tbls_key_vec.len());
+    //     let key = distribute_tbls_key_vec[0].tbls_key.clone();
+    //     let key_msg = CommandMessage {
+    //         command: Command::AssignTBLSKeypair(key),
+    //     };
+    //     let serialized_key = coder::serialize_into_bytes(&key_msg);
+    //     println!("{:?}", serialized_key);
+    //     let de_key: CommandMessage = coder::deserialize_for_bytes(&serialized_key);
+    //     println!("{:#?}", de_key);
 
-        let mut consensus_node_pks: HashMap<Vec<u8>, ConsensusNodePKInfo> = HashMap::new();
-        for key_info in distribute_tbls_key_vec {
-            let msg = CommandMessage {
-                command: Command::AssignTBLSKeypair(key_info.tbls_key.clone()),
-            };
-            let serialized_msg = coder::serialize_into_bytes(&msg);
-            self.peer_mut()
-                .network_swarm_mut()
-                .behaviour_mut()
-                .unicast
-                .send_message(&key_info.peer_id, serialized_msg);
+    //     let mut consensus_node_pks: HashMap<Vec<u8>, ConsensusNodePKInfo> = HashMap::new();
+    //     for key_info in distribute_tbls_key_vec {
+    //         let msg = CommandMessage {
+    //             command: Command::AssignTBLSKeypair(key_info.tbls_key.clone()),
+    //         };
+    //         let serialized_msg = coder::serialize_into_bytes(&msg);
+    //         self.peer_mut()
+    //             .network_swarm_mut()
+    //             .behaviour_mut()
+    //             .unicast
+    //             .send_message(&key_info.peer_id, serialized_msg);
 
-            let db_key = key_info.peer_id.clone().to_bytes();
-            let consensus_node_pk_info = ConsensusNodePKInfo {
-                number: key_info.number,
-                public_key: key_info.tbls_key.public_key,
-            };
-            let db_value = coder::serialize_into_bytes(&consensus_node_pk_info);
-            self.executor.db.write(&db_key, &db_value);
-            consensus_node_pks.insert(db_key, consensus_node_pk_info);
-        }
+    //         let db_key = key_info.peer_id.clone().to_bytes();
+    //         let consensus_node_pk_info = ConsensusNodePKInfo {
+    //             number: key_info.number,
+    //             public_key: key_info.tbls_key.public_key,
+    //         };
+    //         let db_value = coder::serialize_into_bytes(&consensus_node_pk_info);
+    //         self.executor.db.write(&db_key, &db_value);
+    //         consensus_node_pks.insert(db_key, consensus_node_pk_info);
+    //     }
 
-        let msg = CommandMessage {
-            command: Command::DistributeConsensusNodePKsInfo(consensus_node_pks),
-        };
-        let serialized_msg = coder::serialize_into_bytes(&msg);
-        let topic = IdentTopic::new("Consensus");
-        if let Err(e) = self
-            .peer_mut()
-            .network_swarm_mut()
-            .behaviour_mut()
-            .gossipsub
-            .publish(topic.clone(), serialized_msg)
-        {
-            eprintln!("Publish message error:{:?}", e);
-        }
-    }
+    //     let msg = CommandMessage {
+    //         command: Command::DistributeConsensusNodePKsInfo(consensus_node_pks),
+    //     };
+    //     let serialized_msg = coder::serialize_into_bytes(&msg);
+    //     let topic = IdentTopic::new("Consensus");
+    //     if let Err(e) = self
+    //         .peer_mut()
+    //         .network_swarm_mut()
+    //         .behaviour_mut()
+    //         .gossipsub
+    //         .publish(topic.clone(), serialized_msg)
+    //     {
+    //         eprintln!("Publish message error:{:?}", e);
+    //     }
+    // }
 
     // Initiate a set of consensus requests
     pub fn make_consensus_requests(&mut self, count: usize) {
@@ -950,8 +949,6 @@ impl Controller {
             source: self.id_bytes().clone(),
         };
 
-        
-
         let serialized_message = coder::serialize_into_bytes(&message);
 
         self.peer_mut()
@@ -959,7 +956,7 @@ impl Controller {
             .behaviour_mut()
             .unicast
             .send_message(&peer_id, serialized_message.clone());
-            println!("{:?} set mode!!!!", peer_id);
+        println!("{:?} set mode!!!!", peer_id);
     }
 
     // Obtain a random consensus node ID from the crash consensus node alternative group
@@ -1182,34 +1179,35 @@ impl Controller {
                             }
                         }
                     }
-                    TestItem::Malicious(MaliciousBehaviour::LeaderDelaySendMessage(round, max_phase)) => {
-                        match round {
-                            Round::FirstRound => {
-                                if max_phase > 0 {
-                                    self.next_mid_test_item = Some(TestItem::Malicious(
-                                        MaliciousBehaviour::LeaderDelaySendMessage(
-                                            Round::OtherRound(1),
-                                            max_phase,
-                                        ),
-                                    ));
-                                } else {
-                                    self.next_mid_test_item = None;
-                                }
-                            }
-                            Round::OtherRound(phase) => {
-                                if phase < max_phase {
-                                    self.next_mid_test_item = Some(TestItem::Malicious(
-                                        MaliciousBehaviour::LeaderDelaySendMessage(
-                                            Round::OtherRound(phase + 1),
-                                            max_phase,
-                                        ),
-                                    ));
-                                } else {
-                                    self.next_mid_test_item = None;
-                                }
+                    TestItem::Malicious(MaliciousBehaviour::LeaderDelaySendMessage(
+                        round,
+                        max_phase,
+                    )) => match round {
+                        Round::FirstRound => {
+                            if max_phase > 0 {
+                                self.next_mid_test_item = Some(TestItem::Malicious(
+                                    MaliciousBehaviour::LeaderDelaySendMessage(
+                                        Round::OtherRound(1),
+                                        max_phase,
+                                    ),
+                                ));
+                            } else {
+                                self.next_mid_test_item = None;
                             }
                         }
-                    }
+                        Round::OtherRound(phase) => {
+                            if phase < max_phase {
+                                self.next_mid_test_item = Some(TestItem::Malicious(
+                                    MaliciousBehaviour::LeaderDelaySendMessage(
+                                        Round::OtherRound(phase + 1),
+                                        max_phase,
+                                    ),
+                                ));
+                            } else {
+                                self.next_mid_test_item = None;
+                            }
+                        }
+                    },
 
                     TestItem::Malicious(MaliciousBehaviour::LeaderSendDuplicateMessage(
                         round,
@@ -1300,7 +1298,7 @@ impl Controller {
                             }
                         }
                     },
-                    
+
                     TestItem::Malicious(MaliciousBehaviour::ReplicaNodeConspireForgeMessages(
                         round,
                         max_phase,
@@ -1486,8 +1484,7 @@ impl Controller {
                                     println!("protocol start success!!!");
                                     self.protocol_start();
                                     self.start_test();
-                                }
-                                else {
+                                } else {
                                     println!("ahha");
                                 }
                             }

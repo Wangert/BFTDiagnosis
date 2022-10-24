@@ -12,6 +12,7 @@ utils = { path = "../utils" }
 consensus = { path = "../consensus" }
 components = { path = "../components" }
 BFTDiagnosis = { path = "../BFTDiagnosis" }
+protocols = { path = "../protocols" }
 futures = "0.3.21"
 tokio = { version = "1.17.0", features = ["full"] }
 chrono = "0.4.19"

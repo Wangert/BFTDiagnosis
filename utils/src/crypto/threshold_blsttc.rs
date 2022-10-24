@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use blsttc::serde_impl::SerdeSecret;
 
 use blsttc::{
-    PublicKeySet, PublicKeyShare, SecretKeySet, SecretKeyShare, Signature, SignatureShare,PublicKey, SecretKey}
+    PublicKeySet, PublicKeyShare, SecretKeySet, SecretKeyShare, Signature, SignatureShare,PublicKey}
 ;
 use serde::{Deserialize, Serialize};
 
@@ -112,7 +112,7 @@ mod threshold_sig_tests {
 
         let n = nodes.clone();
 
-        let mut sigs: HashMap<_, _> = n
+        let sigs: HashMap<_, _> = n
             .into_iter()
             .map(|(i, sk, _)| (i, sign(&sk, msg)))
             .collect();

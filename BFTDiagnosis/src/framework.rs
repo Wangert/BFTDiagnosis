@@ -6,42 +6,45 @@ use cli::{
 use network::peer::Peer;
 use components::{
     analyzer::analyzer::Analyzer,
-    basic_consensus_node::ConsensusNode,
-    controller::controller::Controller,
-    // example_consensus_node::{
-    //     test_log::TestLog, test_protocol::TestProtocol, test_state::TestState,
-    // },
-    // internal_consensus::chain_hotstuff::protocol::ChainHotstuffProtocol,
-    // internal_consensus::basic_hotstuff::protocol::BasicHotstuffProtocol,
-    internal_consensus::basic_hotstuff::test_log::TestLog,
-    internal_consensus::basic_hotstuff::test_state::TestState,
-    // internal_consensus::non_timeout_pbft::protocol::NonTimeoutPBFTProtocol,
-    // internal_consensus::non_authentication_pbft::protocol::NonAuthPBFTProtocol,
-    // 
+    protocol_actuator::ProtocolActuator,
+    controller::controller::Controller, behaviour::ProtocolBehaviour,
 };
 use utils::parse::into_ip4_tcp_multiaddr;
-
-use protocols::{
-    basic_hotstuff::protocol::BasicHotstuffProtocol,
-    non_authenticated_pbft::protocol::NonAuthPBFTProtocol,
-    non_viewchange_pbft::protocol::NonTimeoutPBFTProtocol,
-    chain_hotstuff::protocol::ChainHotstuffProtocol,
-    pbft::protocol::PBFTProtocol,
-};
 
 use crate::config::{read_analyzer_config, read_bft_diagnosis_config, read_controller_config};
 use std::error::Error;
 
-pub struct BFTDiagnosisFramework {
+pub struct BFTDiagnosisFramework<TProtocol> 
+where TProtocol: Default + ProtocolBehaviour,
+{
     client: Client,
+    consensus_node: Option<ProtocolActuator<TProtocol>>,
 }
 
-impl BFTDiagnosisFramework {
+impl<TProtocol> BFTDiagnosisFramework<TProtocol> 
+where TProtocol: Default + ProtocolBehaviour,
+{
     pub fn new() -> Self {
         let cmd_matches = CMD.clone().get_matches();
         let client = Client::new(cmd_matches);
 
-        Self { client }
+        Self { client, consensus_node: None }
+    }
+
+    pub fn set_consensus_node(&mut self, consensus_node: ProtocolActuator<TProtocol>) {
+        self.consensus_node = Some(consensus_node)
+    }
+
+    pub fn client(&mut self) -> &mut Client {
+        &mut self.client
+    }
+
+    pub fn consensus_node(&mut self) -> &mut ProtocolActuator<TProtocol> {
+        if let Some(node) = self.consensus_node.as_mut() {
+            node
+        } else {
+            panic!("Please set consensus node!");
+        }
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
@@ -148,10 +151,10 @@ impl BFTDiagnosisFramework {
                 let is_leader = msg[2].parse::<bool>().unwrap();
                 println!("{}", is_leader);
 
-                let mut node: ConsensusNode<TestLog, TestState, PBFTProtocol > =
-                    ConsensusNode::new(local_peer, msg[0]);
-                self.client.consensus_run();
-                node.network_start(is_leader).await?;
+                self.consensus_node().set_peer(local_peer);
+
+                self.client().consensus_run();
+                self.consensus_node().network_start(is_leader).await?;
             }
         }
 

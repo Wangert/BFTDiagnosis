@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use libp2p::{multiaddr::Protocol, Multiaddr};
 use serde_json::{json, Map, Value};
 use trees::Tree;
@@ -99,7 +97,7 @@ pub mod parse_tests {
     use serde_json::{Map, Value};
 
     use crate::{
-        coder::{deserialize_for_json_bytes, serialize_into_json_bytes, serialize_into_json_str},
+        coder::{deserialize_for_json_bytes, serialize_into_json_str},
         parse::map_into_string_tree,
     };
 

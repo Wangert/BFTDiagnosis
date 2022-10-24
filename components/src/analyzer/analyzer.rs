@@ -13,7 +13,7 @@ use network::{
     peer::Peer,
 };
 
-use chrono::Local;
+
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
     sync::Notify,
@@ -462,24 +462,6 @@ impl Analyzer {
             self.data_warehouse_mut().print_malicious_results();
         }
 
-        // if let Some(ref matches) = matches.subcommand_matches("test") {
-        //     if let Some(_) = matches.subcommand_matches("pbft") {
-        //         println!("开始进行PBFT共识协议的测试");
-        //     };
-
-        //     if let Some(_) = matches.subcommand_matches("hotstuff") {
-        //         let rt = tokio::runtime::Runtime::new().unwrap();
-        //         let async_req = async { println!("开始进行hotstuff共识协议的测试") };
-        //         rt.block_on(async_req);
-        //     };
-
-        //     if let Some(_) = matches.subcommand_matches("chain_hotstuff") {
-        //         let rt = tokio::runtime::Runtime::new().unwrap();
-        //         let async_req =
-        //             async { println!("开始进行chain_hotstuff共识协议的测试") };
-        //         rt.block_on(async_req);
-        //     };
-        // }
     }
 
     // Function launched by the Message handler
