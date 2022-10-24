@@ -65,7 +65,7 @@ pub fn get_commit_key_by_request_hash(
 pub fn get_message_key(msg_type: &MessageType) -> String {
     match msg_type {
         MessageType::Request(request) => {
-            let serialized_request = coder::serialize_into_bytes(&request);
+            let serialized_request = coder::serialize_into_json_bytes(&request);
             get_hash_str(&serialized_request)
         }
         MessageType::PrePrepare(preprepare) => {

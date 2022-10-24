@@ -13,3 +13,4 @@ components = { path = "../components" }
 cli = { path = "../cli" }
 network = { path = "../network" }
 utils = { path = "../utils" }
+protocols = { path = "../protocols" }
