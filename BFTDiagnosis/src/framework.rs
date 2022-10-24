@@ -26,6 +26,7 @@ use protocols::{
     non_authenticated_pbft::protocol::NonAuthPBFTProtocol,
     non_viewchange_pbft::protocol::NonTimeoutPBFTProtocol,
     chain_hotstuff::protocol::ChainHotstuffProtocol,
+    pbft::protocol::PBFTProtocol,
 };
 
 use crate::config::{read_analyzer_config, read_bft_diagnosis_config, read_controller_config};
@@ -147,7 +148,7 @@ impl BFTDiagnosisFramework {
                 let is_leader = msg[2].parse::<bool>().unwrap();
                 println!("{}", is_leader);
 
-                let mut node: ConsensusNode<TestLog, TestState, NonTimeoutPBFTProtocol > =
+                let mut node: ConsensusNode<TestLog, TestState, PBFTProtocol > =
                     ConsensusNode::new(local_peer, msg[0]);
                 self.client.consensus_run();
                 node.network_start(is_leader).await?;

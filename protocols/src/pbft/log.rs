@@ -414,7 +414,7 @@ impl ConsensusLog {
     }
 
     // Clear current requests
-    pub async fn clear_current_request(&mut self) {
+    pub fn clear_current_request(&mut self) {
         self.current_requests.clear();
     }
 

@@ -3,7 +3,7 @@
 enable = false
 
 [latency]
-enable = false
+enable = true
 
 [scalability]
 enable = false
@@ -16,7 +16,7 @@ enable = false
 max = 10
 
 [malicious]
-enable = true
+enable = false
 number_of_phase = 2
 # optional behaviours:
 # LeaderFeignDeath

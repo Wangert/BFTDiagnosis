@@ -32,11 +32,12 @@ pub struct PBFTProtocol {
     pub taken_requests: HashSet<Vec<u8>>,
     pub keypair: Box<EdDSAKeyPair>,
     pub viewchange_notify: Arc<Notify>,
+    pub phase_map: HashMap<u8,String>,
     pub timeout_notify: Arc<Notify>,
-    pub consensus_node_pk: HashMap<Vec<u8>, Vec<u8>>,
+
     pub view_timeout_notify: Arc<Notify>,
     pub view_timeout_stop_notify: Arc<Notify>,
-    pub current_view_timeout: u64,
+    pub consensus_node_pk: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl Default for PBFTProtocol {
@@ -45,13 +46,13 @@ impl Default for PBFTProtocol {
             state: State::new(Duration::from_secs(5)),
             log: Box::new(ConsensusLog::new()),
             keypair: Box::new(EdDSAKeyPair::new()),
+            phase_map: HashMap::new(),
             viewchange_notify: Arc::new(Notify::new()),
             timeout_notify: Arc::new(Notify::new()),
             consensus_node_pk: HashMap::new(),
             taken_requests: HashSet::new(),
             view_timeout_notify: Arc::new(Notify::new()),
             view_timeout_stop_notify: Arc::new(Notify::new()),
-            current_view_timeout: 10,
         }
     }
 }
@@ -62,8 +63,8 @@ impl PBFTProtocol {
         println!("==============【view timeout start】==============");
         let timeout_notify = self.view_timeout_notify.clone();
         let stop_notify = self.view_timeout_stop_notify.clone();
-        let current_timeout = Duration::from_secs(self.current_view_timeout);
-        println!("Current view timeout: {}", self.current_view_timeout);
+        let current_timeout = Duration::from_secs(10);
+        println!("Current view timeout: {}", 10);
         tokio::spawn(async move {
             if let Err(_) = tokio::time::timeout(current_timeout, stop_notify.notified()).await {
                 timeout_notify.notify_one();
@@ -71,6 +72,136 @@ impl PBFTProtocol {
             }
         });
     }
+
+    pub fn view_timeout_stop(&mut self) {
+        println!("timeout stop");
+        self.view_timeout_stop_notify.notify_one();
+    }
+
+    // Consensus node handles the received VIEWCHANGE message
+    pub fn handle_viewchange(&mut self, current_peer_id: &[u8], msg: &ViewChange) -> PhaseState {
+        // verify signature
+        let mut send_type = VecDeque::new();
+        let new_view = msg.new_view;
+        if new_view <= self.state.view {
+            return PhaseState::ContinueExecute(send_type);
+        }
+        // record viewchange message
+        self.log
+            .record_message_handler(MessageType::ViewChange(msg.clone()));
+        let msg_count = self
+            .log
+            .get_viewchange_messages_count_by_view(new_view);
+        // The current node has not detected the exception, but has received F +1 viewchange message.
+        // That is, the node also starts the viewchange, preventing the view switchover process from starting too late.
+        if msg_count as u64 > self.state.fault_tolerance_count
+        {
+            return self.broadcast_viewchange(current_peer_id)
+        }
+
+        // When recieved 2f+1 viewchange, start viewchange timeout
+        // The current node is the primary node and has received 2f+1 viewchange messages
+        if self.state.is_primary && msg_count as u64 > 2 * self.state.fault_tolerance_count {
+            return self.broadcast_newview(new_view)
+        }
+        else {
+            return PhaseState::ContinueExecute(send_type)
+        }
+    }
+
+    pub fn broadcast_viewchange(&self, current_peer_id: &[u8]) -> PhaseState {
+        let mut send_query = VecDeque::new();
+        let threshold = 2 * self.state.fault_tolerance_count;
+        let proof_messages = *self.log.get_proof_messages().clone();
+        let viewchange = ViewChange {
+            new_view: self.state.view + 1,
+            proof_messages,
+            from_peer_id: current_peer_id.to_vec(),
+            signature: String::from(""),
+        };
+        let viewchange_msg = ConsensusMessage {
+            msg_type: MessageType::ViewChange(viewchange),
+        };
+        let serialized_viewchange_msg = coder::serialize_into_json_bytes(&viewchange_msg);
+        send_query.push_back(SendType::Broadcast(serialized_viewchange_msg));
+        PhaseState::ContinueExecute(send_query)
+    }
+
+    // The primary node creates a newview message based on the local storage messages
+    // And broadcast it to other nodes to enter the next view
+    pub fn broadcast_newview(&self, new_view: u64) -> PhaseState {
+        let mut send_query = VecDeque::new();
+        let viewchanges = *self.log.get_viewchange_messages_by_view(new_view);
+        // let min = viewchanges.first().unwrap().latest_stable_checkpoint;
+        let max = self
+            .log
+            .get_max_sequence_number_in_viewchange_by_view(new_view);
+        let preprepares = *self
+            .log
+            .create_newview_preprepare_messages(new_view, 0, max);
+
+        let newview = NewView {
+            view: new_view,
+            viewchanges,
+            preprepares,
+            signature: String::from(""),
+        };
+        let newview_msg = ConsensusMessage {
+            msg_type: MessageType::NewView(newview),
+        };
+        let serialized_newview_msg = coder::serialize_into_json_bytes(&newview_msg);
+        send_query.push_back(SendType::Broadcast(serialized_newview_msg));
+        PhaseState::ContinueExecute(send_query)        
+    }
+
+    // The replic handles a newview message from the primary
+    pub fn handle_newview(&mut self, current_peer_id: &[u8], msg: &NewView) -> PhaseState {
+        let mut send_query:VecDeque<SendType> = VecDeque::new();
+        // verify newview message
+        // if !self.verify_newview(msg) {
+        //     eprintln!("NewView messages is invalid!");
+        //     return;
+        // }
+        // update view
+        self.state.view = msg.view;
+        // stop viewchange timeout
+        self.view_timeout_stop();
+        // clear the cache of unexecuted requests
+        self.log.clear_current_request();
+        for preprepare in &msg.preprepares {
+            let request_key = preprepare.m_hash.clone();
+            // record preprepare message
+            let record_msg = preprepare.clone();
+            self.log
+                .record_message_handler(MessageType::PrePrepare(record_msg));
+            let key_str = get_message_key(&MessageType::PrePrepare(preprepare.clone()));
+
+            let msg_vec = self.log.get_local_messages_by_hash(&key_str);
+            println!("###################Current PrePrepare Messages#################");
+            println!("{:?}", &msg_vec);
+            println!("###############################################################");
+
+            // create prepare message
+            let view = msg.view;
+            let seq_number = preprepare.number;
+            let m_hash = preprepare.m_hash.clone();
+            let signature = vec![];
+            let prepare = Prepare {
+                view,
+                number: seq_number,
+                m_hash,
+                from_peer_id: current_peer_id.to_vec(),
+                signature,
+            };
+
+            let prepare_msg = MessageType::Prepare(prepare);
+            let serialized_prepare_msg = coder::serialize_into_json_bytes(&prepare_msg);
+            // self.log.record_current_request(&request_key);
+            send_query.push_back(SendType::Broadcast(serialized_prepare_msg))
+        }
+        PhaseState::ContinueExecute(send_query)
+    }
+
 
     pub fn get_public_key_by_peer_id(&self, peer_id: &[u8]) -> Option<EdDSAPublicKey> {
         let value = self.consensus_node_pk.get(peer_id);
@@ -81,56 +212,17 @@ impl PBFTProtocol {
         }
     }
 
-    // Create a viewchange message based on the local storage messages
-    // And broadcast it to other nodes to enter the viewchange mode
-    pub fn broadcast_viewchange(&self, current_peer_id: &[u8]) -> PhaseState {
-        let mut send_query = VecDeque::new();
-        // let mode = self.state.mode.clone();
-        // Avoid broadcast viewchange messages again
-        // if let Mode::Abnormal = *mode.lock().await {
-        //     return;
-        // }
-        // Switch to viewchange mode
-        // *mode.lock().await = Mode::Abnormal;
-        // let m = mode.lock().await.clone();
-        // println!("&&&&&&&&&&&&&&{:?}&&&&&&&&&&&&&&&", m);
-
-        let threshold = 2 * self.state.fault_tolerance_count;
-        let sequence_number = self.state.stable_checkpoint.0;
-        let latest_stable_checkpoint_messages = *self
-            .log
-            .get_checkpoint_messages_by_sequence_number(sequence_number, threshold)
-            .clone();
-        let proof_messages = *self.log.get_proof_messages().clone();
-        let viewchange = ViewChange {
-            new_view: self.state.view + 1,
-            // latest_stable_checkpoint: self.state.stable_checkpoint.0,
-            // latest_stable_checkpoint_messages,
-            proof_messages,
-            from_peer_id: current_peer_id.to_vec(),
-            signature: String::from(""),
-        };
-        let viewchange_msg = ConsensusMessage {
-            msg_type: MessageType::ViewChange(viewchange),
-        };
-        let serialized_viewchange_msg = coder::serialize_into_bytes(&viewchange_msg);
-        
-        send_query.push_back(SendType::Broadcast(serialized_viewchange_msg));
-        PhaseState::ContinueExecute(send_query)
-    }
-
     fn handle_request(&mut self, current_peer_id: &[u8], request: &Request) -> PhaseState {
         self.taken_requests.insert(coder::serialize_into_bytes(request));
         let mut send_query = VecDeque::new();
         self.state.primary = current_peer_id.to_vec();
 
         println!("******************* Handle request *******************");
-
         // create PrePrepare message
         let view = self.state.view;
         let seq_number = self.state.current_sequence_number + 1;
 
-        let serialized_request = coder::serialize_into_bytes(&request);
+        let serialized_request = coder::serialize_into_json_bytes(&request);
         self.log.record_request(seq_number, &request.clone());
         let request = self.log.get_local_request_by_sequence_number(seq_number);
         println!("################# Current Request Messages #################");
@@ -157,8 +249,7 @@ impl PBFTProtocol {
             msg_type: MessageType::PrePrepare(preprepare),
         };
 
-        let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-
+        let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
         send_query.push_back(SendType::Broadcast(serialized_msg));
         PhaseState::ContinueExecute(send_query)
     }
@@ -167,13 +258,14 @@ impl PBFTProtocol {
         current_peer_id: &[u8],
         msg: &PrePrepare,
     ) -> PhaseState {
-        let request:Request = coder::deserialize_for_bytes(&msg.m);
+        let request:Request = coder::deserialize_for_json_bytes(&msg.m);
         self.taken_requests.insert(coder::serialize_into_bytes(&request));
         let mut send_query = VecDeque::new();
 
         self.state.primary = msg.clone().from_peer_id;
 
         println!("*******************Handle Preprepare*******************");
+
 
         let key_str = get_message_key(&MessageType::PrePrepare(msg.clone()));
         let source_pk = self.get_public_key_by_peer_id(&msg.from_peer_id);
@@ -210,7 +302,7 @@ impl PBFTProtocol {
 
         // record request message
         let serialized_request = msg.m.clone();
-        let m: Request = coder::deserialize_for_bytes(&serialized_request[..]);
+        let m: Request = coder::deserialize_for_json_bytes(&serialized_request[..]);
         self.log.record_request(msg.number, &m);
         let request = self.log.get_local_request_by_sequence_number(msg.number);
 
@@ -249,7 +341,7 @@ impl PBFTProtocol {
             msg_type: MessageType::Prepare(prepare),
         };
 
-        let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
+        let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
         // broadcast prepare message
         
         send_query.push_back(SendType::Broadcast(serialized_msg));
@@ -353,9 +445,7 @@ impl PBFTProtocol {
                 msg_type: MessageType::Commit(commit),
             };
 
-            let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-            //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
-
+            let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
             // broadcast commit message
             
             send_query.push_back(SendType::Broadcast(serialized_msg));
@@ -461,12 +551,7 @@ impl PBFTProtocol {
             let cmd = m.cmd;
             let view = self.state.view;
             let seq_number = msg.number;
-            // let client_id = m.client_id;
-            // let timestamp = m.timestamp;
-            // let timestamp_clone = timestamp.clone();
             let mut reply = Reply {
-                // client_id,
-                // timestamp: timestamp.clone(),
                 number: seq_number,
                 from_peer_id: current_peer_id.to_vec(),
                 signature: vec![],
@@ -483,22 +568,18 @@ impl PBFTProtocol {
             let broadcast_msg = ConsensusMessage {
                 msg_type: MessageType::Reply(reply),
             };
-            let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
+            let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
             // Send Reply message to client
             
             send_query.push_back(SendType::Unicast(PeerId::from_bytes(&self.state.primary).expect("msg"), serialized_msg));
 
             let request = Request {
                 cmd:cmd.clone(),
-                // timestamp:timestamp.clone(),
             };
             let msg = ConsensusMessage {
                 msg_type: MessageType::Request(request.clone()),
             };
-            let message = coder::serialize_into_bytes(&msg);
 
-
-            
             self.log.reset();
             return PhaseState::Complete(request, send_query);
             
@@ -552,11 +633,9 @@ impl PBFTProtocol {
         println!("current_cous is : {:?},threshold is : {:?}",current_count,reply_threshold);
         if current_count as u64 == reply_threshold {
             println!("满足条件，发送切换requets‘");
-            // self.state.client_state = ClientState::Replied;
 
             let request = Request {
                 cmd: msg.clone().cmd,
-                // timestamp: msg.clone().timestamp,
             };
 
             let data = ConsensusMessage{
@@ -607,78 +686,6 @@ impl PBFTProtocol {
         PhaseState::ContinueExecute(send_query)
     }
 
-    // Consensus node handles the received VIEWCHANGE message
-    pub fn handle_viewchange(&mut self, current_peer_id: &[u8], msg: &ViewChange) -> PhaseState {
-        // verify signature
-        let mut send_type = VecDeque::new();
-        let new_view = msg.new_view;
-        if new_view <= self.state.view {
-            return PhaseState::ContinueExecute(send_type);
-        }
-
-        // record viewchange message
-        self.log
-            .record_message_handler(MessageType::ViewChange(msg.clone()));
-        let msg_count = self
-            .log
-            .get_viewchange_messages_count_by_view(new_view);
-        // let mode = *self.state.mode.lock().await;
-
-        // The current node has not detected the exception, but has received F +1 viewchange message.
-        // That is, the node also starts the viewchange, preventing the view switchover process from starting too late.
-        if msg_count as u64 > self.state.fault_tolerance_count
-            // && match mode {
-            //     Mode::Abnormal => false,
-            //     Mode::Normal => true,
-            // }
-        {
-            return self.broadcast_viewchange(current_peer_id)
-            
-        }
-
-        // When recieved 2f+1 viewchange, start viewchange timeout
-
-        // The current node is the primary node and has received 2f+1 viewchange messages
-        if self.state.is_primary && msg_count as u64 > 2 * self.state.fault_tolerance_count {
-            return self.broadcast_newview(new_view)
-        }
-        else {
-            return PhaseState::ContinueExecute(send_type)
-        }
-    }
-
-    // The primary node creates a newview message based on the local storage messages
-    // And broadcast it to other nodes to enter the next view
-    pub fn broadcast_newview(&self, new_view: u64) -> PhaseState {
-        let mut send_query = VecDeque::new();
-        let viewchanges = *self.log.get_viewchange_messages_by_view(new_view);
-        // let min = viewchanges.first().unwrap().latest_stable_checkpoint;
-        let max = self
-            .log
-            .get_max_sequence_number_in_viewchange_by_view(new_view);
-        let preprepares = *self
-            .log
-            .create_newview_preprepare_messages(new_view, 0, max);
-
-        let newview = NewView {
-            view: new_view,
-            viewchanges,
-            preprepares,
-            signature: String::from(""),
-        };
-        let newview_msg = ConsensusMessage {
-            msg_type: MessageType::NewView(newview),
-        };
-        let serialized_newview_msg = coder::serialize_into_bytes(&newview_msg);
-        send_query.push_back(SendType::Broadcast(serialized_newview_msg));
-        PhaseState::ContinueExecute(send_query)        
-    }
-
-
-    fn handle_newview(&self) -> PhaseState {
-        let mut send_query = VecDeque::new();
-        PhaseState::ContinueExecute(send_query)
-    }
 
     pub fn distribute_public_key(&self, current_peer_id: &[u8]) -> PhaseState {
         println!("*********************** Distribute Public Key ****************************");
@@ -691,7 +698,7 @@ impl PBFTProtocol {
         let msg = ConsensusMessage {
             msg_type: MessageType::PublicKey(public_key),
         };
-        let serialized_msg = coder::serialize_into_bytes(&msg);
+        let serialized_msg = coder::serialize_into_json_bytes(&msg);
         // self.msg_tx.send(serialized_msg).await.unwrap();]
         
         send_query.push_back(SendType::Broadcast(serialized_msg));
@@ -724,12 +731,13 @@ impl ProtocolBehaviour for PBFTProtocol {
         consensus_nodes: HashSet<PeerId>,
         current_peer_id: Vec<u8>,
     ) -> PhaseState {
+        self.state.primary = current_peer_id.clone();
         let mut send_query = VecDeque::new();
         self.state.node_count = consensus_nodes.len() as u64;
         let msg = ConsensusMessage {
             msg_type: MessageType::DistributePK,
         };
-        let serialized_msg = coder::serialize_into_bytes(&msg);
+        let serialized_msg = coder::serialize_into_json_bytes(&msg);
         
         send_query.push_back(SendType::Broadcast(serialized_msg));
 
@@ -739,7 +747,7 @@ impl ProtocolBehaviour for PBFTProtocol {
                 send_query.push_back(msg);
             }
         }
-        PhaseState::ContinueExecute(send_query)
+        PhaseState::OverMessage(None,send_query)
     }
 
     // fn receive_consensus_requests(&mut self, requests: Vec<Request>) {}
@@ -750,7 +758,7 @@ impl ProtocolBehaviour for PBFTProtocol {
         current_peer_id: Vec<u8>,
         peer_id: Option<PeerId>,
     ) -> PhaseState {
-        let message: ConsensusMessage = coder::deserialize_for_bytes(_msg);
+        let message: ConsensusMessage = coder::deserialize_for_json_bytes(_msg);
         match message.msg_type {
             MessageType::Request(msg) => {
                 return self.handle_request(&current_peer_id, &msg)
@@ -774,7 +782,7 @@ impl ProtocolBehaviour for PBFTProtocol {
                 return self.handle_viewchange(&current_peer_id, &msg);
             }
             MessageType::NewView(msg) => {
-                return self.handle_newview();
+                return self.handle_newview(&current_peer_id, &msg);
             }
             MessageType::PublicKey(msg) => {
                 return self.storage_public_key_by_peer_id(&msg);
@@ -784,13 +792,11 @@ impl ProtocolBehaviour for PBFTProtocol {
             }
         }
 
-        // ConsensusEnd::No
         let mut queue = VecDeque::new();
         queue.push_back(SendType::Broadcast(vec![]));
         PhaseState::ContinueExecute(queue)
     }
 
-    
     fn check_taken_request(&self,request:Vec<u8>) -> bool {
         if self.taken_requests.contains(&request) {
             true
@@ -816,11 +822,62 @@ impl ProtocolBehaviour for PBFTProtocol {
         let msg = ConsensusMessage {
             msg_type: MessageType::Request(request.to_owned()),
         };
-        let data = coder::serialize_into_bytes(&msg);
+        let data = coder::serialize_into_json_bytes(&msg);
         data
     }
 
-    
+    fn phase_map(&self) -> HashMap<u8,String> {
+        self.phase_map.clone()
+    }
+
+    fn protocol_phases(&mut self) -> HashMap<u8, Vec<u8>> {
+        let mut hash_map = HashMap::new();
+        let prepare = Prepare {
+            view: 1,
+            number: 1,
+            m_hash: String::from(""),
+            from_peer_id: vec![],
+            signature: vec![],
+        };
+        let commit = Commit {
+            view: 1,
+            number: 2,
+            m_hash: String::from(""),
+            from_peer_id: vec![],
+            signature: vec![],
+        };
+        let prepare_json = coder::serialize_into_json_str(&prepare).as_bytes().to_vec();
+        let commit_json = coder::serialize_into_json_str(&commit).as_bytes().to_vec();
+        hash_map.insert(1, prepare_json);
+        hash_map.insert(2, commit_json);
+        
+        self.phase_map.insert(1, String::from("Prepare"));
+        self.phase_map.insert(2, String::from("Commit"));
+
+        hash_map
+    }
+
+    fn get_current_phase(&mut self, _msg: &[u8]) -> u8 {
+        if _msg.len() == 0 {
+            return 0
+        }
+        else {
+            let data: ConsensusMessage = coder::deserialize_for_json_bytes(_msg);
+        let i = match data.msg_type {
+            MessageType::Request(_) => 0,
+            MessageType::PrePrepare(_) => 0,
+            MessageType::Prepare(_) => 1,
+            MessageType::Commit(_) => 2,
+            MessageType::Reply(_) => 0,
+            _ => 0
+        };
+        return i;
+        }
+    }
+
+
+
+
     fn current_request(&self) -> Request {
         todo!()
     }
@@ -834,38 +891,4 @@ impl ProtocolBehaviour for PBFTProtocol {
             _ => false,
         }
     }
-
-    fn view_timeout_handler(&mut self, current_peer_id: PeerId) -> PhaseState {
-        println!("OK?");
-        let current_view_timeout = self.current_view_timeout;
-        self.current_view_timeout = current_view_timeout * 2;
-        // send newview
-        let msg = self.broadcast_viewchange(&current_peer_id.to_bytes());
-        return msg;
-    }
-
-    fn get_current_phase(&mut self, _msg: &[u8]) -> u8 {
-        1
-    }
-
-    fn protocol_reset(&mut self) {
-
-    }
-
-    fn protocol_phases(&mut self) -> HashMap<u8, Vec<u8>> {
-        println!("No security test interface is implemented！");
-        HashMap::new()
-    }
-
-    fn phase_map(&self) -> HashMap<u8,String> {
-        HashMap::new()
-    }
-
-    fn set_leader(&mut self, is_leader: bool) {
-        
-    }
-
-    
-
-    fn set_current_request(&mut self, request: &Request) {}
 }
