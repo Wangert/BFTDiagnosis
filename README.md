@@ -97,30 +97,41 @@ All configuration parameters are organized in the format of .toml files.
 After protocol customization and configration,users can start the test.There follows the steps.
 ### 3. Start Consensus Node
 First, Users need to provide the specified IP, port and a bool value(is or not the leader) to start the consensus node, as follows
+
 ``` cargo run -- --consensus 10.176.34.71 6666 true```
 ### 4. Start Controller
 Then, Users need to start the controller.There follows the steps.
+
 ``` cargo run -- --controller ```
 ### 5. Start Analyzer
 Then, Users need to start the Analyzer.There follows the steps.
+
 ``` cargo run -- --analyzer ```
 ### 6. Init
 Controller and Analyzer each perform initialization operations
+
 ``` BFTDiagnosis(Controller) >> init ```
+
 ``` BFTDiagnosis(Analyzer)   >> init ```
 ### 7. Controller set the TestItem 
 Controller configures the test items and transmits them to Analyzer
+
 ``` BFTDiagnosis(Controller)>> configureAnalyzer ``` 
 ### 8. Controller set the state of Consensus Nodes
 Controller set the state of Consensus Nodes by sending messages to Consensus Nodes.
+
 ``` BFTDiagnosis(Controller)>> configureConsensusNode  ```
 ### 9. Protocol Running
 Controller sends commands to Consensus Nodes to initiate the process of the consensus protocol.
+
 ``` BFTDiagnosis(Controller)>> protocolStart ```
 ### 10. Start testing
 Controller sends a command to Analyzer to initiate the process of the test.
+
 ``` BFTDiagnosis(Controller)>> startTest ```
 ### 11. View the results
 Test results are stored in both local memory and Mysql-database, and can be viewed through both print and database queries.
+
 ``` BFTDiagnosis(Analyzer)>> printLatencyResults ```
+
 ``` mysql -> select * from LatencyResults ```
