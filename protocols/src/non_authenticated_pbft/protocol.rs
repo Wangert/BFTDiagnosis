@@ -7,21 +7,19 @@ use std::{
     time::Duration, str::FromStr,
 };
 use super::{log::{ConsensusLog,LogPhaseState}, state::State};
-use storage::database::LevelDB;
 use tokio::sync::{
-    mpsc::{self, Receiver, Sender},
     Notify,
 };
 use utils::{
     coder::{self, get_hash_str},
-    crypto::eddsa::{EdDSAKeyPair, EdDSAPublicKey},
+    crypto::eddsa::{EdDSAKeyPair},
 };
 
 use components::behaviour::{PhaseState, ProtocolBehaviour, SendType};
 use crate::non_authenticated_pbft::message::ConsensusMessage;
 
 use crate::non_authenticated_pbft::message::{
-Commit, MetaReply, PrePrepare, Prepare, ProofMessages, Reply,
+Commit, PrePrepare, Prepare, ProofMessages, Reply,
 };
 use components::message::Request;
 use crate::non_authenticated_pbft::message::MessageType;
@@ -29,8 +27,8 @@ use crate::non_authenticated_pbft::message::MessageType;
 pub struct NonAuthPBFTProtocol {
     pub state: State,
     pub log: Box<ConsensusLog>,
+    pub phase_map: HashMap<u8,String>,
     pub taken_requests: HashSet<Vec<u8>>,
-    // pub db: Box<LevelDB>,
     pub keypair: Box<EdDSAKeyPair>,
     pub viewchange_notify: Arc<Notify>,
     pub timeout_notify: Arc<Notify>,
@@ -43,9 +41,8 @@ impl Default for NonAuthPBFTProtocol {
         Self {
             state: State::new(Duration::from_secs(5)),
             log: Box::new(ConsensusLog::new()),
-            // db: Box::new(LevelDB::new(db_path)),
+            phase_map: HashMap::new(),
             keypair: Box::new(EdDSAKeyPair::new()),
-            
             viewchange_notify: Arc::new(Notify::new()),
             timeout_notify: Arc::new(Notify::new()),
             consensus_node_pk: HashMap::new(),
@@ -55,20 +52,16 @@ impl Default for NonAuthPBFTProtocol {
 }
 
 impl NonAuthPBFTProtocol {
-    
-
     fn handle_request(&mut self, current_peer_id: &[u8], request: &Request) -> PhaseState {
         self.taken_requests.insert(coder::serialize_into_bytes(request));
         let mut send_query = VecDeque::new();
         self.state.primary = current_peer_id.to_vec();
-
         println!("******************* Handle request *******************");
-
         // create PrePrepare message
         let view = self.state.view;
         let seq_number = self.state.current_sequence_number + 1;
 
-        let serialized_request = coder::serialize_into_bytes(&request);
+        let serialized_request = coder::serialize_into_json_bytes(&request);
         self.log.record_request(seq_number, &request.clone());
         let request = self.log.get_local_request_by_sequence_number(seq_number);
         println!("################# Current Request Messages #################");
@@ -85,15 +78,11 @@ impl NonAuthPBFTProtocol {
             from_peer_id: current_peer_id.to_vec(),
         };
 
-        
-
         let broadcast_msg = ConsensusMessage {
             msg_type: MessageType::PrePrepare(preprepare),
         };
 
-        let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-        //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
-
+        let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
         send_query.push_back(SendType::Broadcast(serialized_msg));
         PhaseState::ContinueExecute(send_query)
     }
@@ -103,8 +92,8 @@ impl NonAuthPBFTProtocol {
         msg: &PrePrepare,
     ) -> PhaseState {
         let mut send_query = VecDeque::new();
-        let request:Request = coder::deserialize_for_bytes(&msg.m);
-        self.taken_requests.insert(coder::serialize_into_bytes(&request));
+        let request:Request = coder::deserialize_for_json_bytes(&msg.m);
+        self.taken_requests.insert(coder::serialize_into_json_bytes(&request));
         self.state.primary = msg.clone().from_peer_id;
 
         println!("*******************Handle Preprepare*******************");
@@ -131,7 +120,7 @@ impl NonAuthPBFTProtocol {
 
         // record request message
         let serialized_request = msg.m.clone();
-        let m: Request = coder::deserialize_for_bytes(&serialized_request[..]);
+        let m: Request = coder::deserialize_for_json_bytes(&serialized_request[..]);
         self.log.record_request(msg.number, &m);
         let request = self.log.get_local_request_by_sequence_number(msg.number);
 
@@ -166,7 +155,7 @@ impl NonAuthPBFTProtocol {
             msg_type: MessageType::Prepare(prepare),
         };
 
-        let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
+        let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
         //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
 
         // broadcast prepare message
@@ -212,11 +201,7 @@ impl NonAuthPBFTProtocol {
         //check m hash
         let m = self.log.get_local_request_by_sequence_number(msg.number);
         if let Some(m) = m {
-            let request_hash = get_message_key(&MessageType::Request(m.clone()));
-            if request_hash.ne(&msg.m_hash) {
-                eprintln!("Request hash error!");
-                return PhaseState::ContinueExecute(send_query);
-            }
+            
         } else {
             eprintln!("Request is not exsit!");
             return PhaseState::ContinueExecute(send_query);
@@ -257,7 +242,7 @@ impl NonAuthPBFTProtocol {
                 msg_type: MessageType::Commit(commit),
             };
 
-            let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
+            let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
             //let str_msg = std::str::from_utf8(&serialized_msg).unwrap();
 
             // broadcast commit message
@@ -314,11 +299,7 @@ impl NonAuthPBFTProtocol {
         };
 
         // check m hash
-        let request_hash = get_message_key(&MessageType::Request(m.clone()));
-        if request_hash.ne(&msg.m_hash) {
-            eprintln!("Request hash error!");
-            return PhaseState::ContinueExecute(send_query);
-        }
+        
 
         // record message
         self.log
@@ -348,18 +329,12 @@ impl NonAuthPBFTProtocol {
 
             self.log
                 .update_request_phase_state(&msg.m_hash, LogPhaseState::Commited);
-            //self.state.phase_state = PhaseState::Commited;
             println!("【Commit message to 2f+1, send reply message】");
             // create reply message
             let cmd = m.cmd;
             let view = self.state.view;
             let seq_number = msg.number;
-            // let client_id = m.client_id;
-            // let timestamp = m.timestamp;
-            // let timestamp_clone = timestamp.clone();
             let mut reply = Reply {
-                // client_id,
-                // timestamp: timestamp.clone(),
                 number: seq_number,
                 from_peer_id: current_peer_id.to_vec(),
                 result: "ok!".as_bytes().to_vec(),
@@ -367,26 +342,19 @@ impl NonAuthPBFTProtocol {
                 cmd:cmd.clone(),
             };
 
-            
-
             let broadcast_msg = ConsensusMessage {
                 msg_type: MessageType::Reply(reply),
             };
-            let serialized_msg = coder::serialize_into_bytes(&broadcast_msg);
-            // Send Reply message to client
+            let serialized_msg = coder::serialize_into_json_bytes(&broadcast_msg);
             
             send_query.push_back(SendType::Unicast(PeerId::from_bytes(&self.state.primary).expect("msg"), serialized_msg));
 
             let request = Request {
                 cmd:cmd.clone(),
-                // timestamp:timestamp.clone(),
             };
             let msg = ConsensusMessage {
                 msg_type: MessageType::Request(request.clone()),
             };
-            let message = coder::serialize_into_bytes(&msg);
-
-
             
             self.log.reset();
             return PhaseState::Complete(request, send_query);
@@ -400,15 +368,8 @@ impl NonAuthPBFTProtocol {
         let key_str = get_message_key(&&MessageType::Reply(msg.clone()));
         let threshold = (self.state.node_count as u64 - self.state.fault_tolerance_count) as u64;
 
-        // if count as u64 >= threshold {
-        //     return PhaseState::ContinueExecute(send_query);
-        // }
 
         println!("******************* Handle Reply *******************");
-
-        // if let ClientState::Replied = self.state.client_state {
-        //     return;
-        // }
         // verify signature
         let key_str = get_message_key(&MessageType::Reply(msg.clone()));
         let peer = PeerId::from_bytes(&msg.from_peer_id).expect("peer bytes error.");
@@ -464,7 +425,6 @@ impl ProtocolBehaviour for NonAuthPBFTProtocol {
         &mut self,
         consensus_nodes: HashSet<PeerId>,
         current_peer_id: Vec<u8>,
-        analyzer_id: String,
     ) -> PhaseState {
         self.state.primary = current_peer_id.clone();
         let mut send_query = VecDeque::new();
@@ -480,7 +440,7 @@ impl ProtocolBehaviour for NonAuthPBFTProtocol {
         current_peer_id: Vec<u8>,
         peer_id: Option<PeerId>,
     ) -> PhaseState {
-        let message: ConsensusMessage = coder::deserialize_for_bytes(_msg);
+        let message: ConsensusMessage = coder::deserialize_for_json_bytes(_msg);
         match message.msg_type {
             MessageType::Request(msg) => {
                 return self.handle_request(&current_peer_id, &msg)
@@ -522,9 +482,57 @@ impl ProtocolBehaviour for NonAuthPBFTProtocol {
         let msg = ConsensusMessage {
             msg_type: MessageType::Request(request.to_owned()),
         };
-        let data = coder::serialize_into_bytes(&msg);
+        let data = coder::serialize_into_json_bytes(&msg);
         data
     }
+
+    fn phase_map(&self) -> HashMap<u8,String> {
+        self.phase_map.clone()
+    }
+
+    fn protocol_phases(&mut self) -> HashMap<u8, Vec<u8>> {
+        let mut hash_map = HashMap::new();
+        let prepare = Prepare {
+            view: 1,
+            number: 1,
+            m_hash: String::from(""),
+            from_peer_id: vec![],
+        };
+        let commit = Commit {
+            view: 1,
+            number: 2,
+            m_hash: String::from(""),
+            from_peer_id: vec![],
+        };
+        let prepare_json = coder::serialize_into_json_str(&prepare).as_bytes().to_vec();
+        let commit_json = coder::serialize_into_json_str(&commit).as_bytes().to_vec();
+        hash_map.insert(1, prepare_json);
+        hash_map.insert(2, commit_json);
+        
+        self.phase_map.insert(1, String::from("Prepare"));
+        self.phase_map.insert(2, String::from("Commit"));
+
+        hash_map
+    }
+
+    fn get_current_phase(&mut self, _msg: &[u8]) -> u8 {
+        if _msg.len() == 0 {
+            return 0
+        }
+        else {
+            let data: ConsensusMessage = coder::deserialize_for_json_bytes(_msg);
+        let i = match data.msg_type {
+            MessageType::Request(_) => 0,
+            MessageType::PrePrepare(_) => 0,
+            MessageType::Prepare(_) => 1,
+            MessageType::Commit(_) => 2,
+            MessageType::Reply(_) => 0,
+            _ => 0
+        };
+        return i;
+        }
+    }
+
 
 
     fn current_request(&self) -> Request {

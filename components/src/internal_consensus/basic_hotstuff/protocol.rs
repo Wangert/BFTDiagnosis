@@ -860,7 +860,6 @@ impl ProtocolBehaviour for BasicHotstuffProtocol {
         &mut self,
         consensus_nodes: HashSet<PeerId>,
         current_peer_id: Vec<u8>,
-        analyzer_id: String,
     ) -> PhaseState {
         let mut map: HashMap<String, PeerId> = HashMap::new();
         consensus_nodes.iter().for_each(|i| {
