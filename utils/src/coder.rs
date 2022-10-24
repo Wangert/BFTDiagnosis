@@ -1,6 +1,6 @@
 use crypto::{digest::Digest, sha3::Sha3};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+
 
 pub fn block_serialize<T: ?Sized>(value: &T) -> Vec<u8>
 where
@@ -24,8 +24,6 @@ where
 {
     bincode::deserialize(bytes).unwrap()
 }
-
-
 
 pub fn serialize_into_bytes<T: ?Sized>(value: &T) -> Vec<u8>
 where
@@ -73,14 +71,13 @@ pub fn get_hash_str(value: &[u8]) -> String {
 
 #[cfg(test)]
 mod coder_test {
-    use std::{collections::HashMap, borrow::BorrowMut};
+    use std::{borrow::BorrowMut};
 
     use serde::{Deserialize, Serialize};
     use serde_json::{Value, Map, json};
 
     use crate::coder::{get_hash_u8_vec, get_hash_str, deserialize_for_json_bytes, serialize_into_json_str};
 
-    use super::serialize_into_json_bytes;
 
     #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct PreCommit {

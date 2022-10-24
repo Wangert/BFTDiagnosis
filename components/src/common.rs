@@ -64,7 +64,7 @@ pub fn generate_a_consensus_request_command() -> CommandMessage {
 pub fn generate_consensus_requests_command(size: usize) -> Message {
     let mut requests = vec![];
     for i in 0..size {
-        let timestamp = Local::now().timestamp_nanos() as u64;
+        // let timestamp = Local::now().timestamp_nanos() as u64;
         let cmd = format!("{}{}", "Request_", i);
         let request = Request { cmd, 
             // timestamp

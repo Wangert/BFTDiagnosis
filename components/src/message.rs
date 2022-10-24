@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use blsttc::PublicKeyShare;
 use utils::crypto::threshold_blsttc::TBLSKey;
 
-use crate::basic_consensus_node::{ConsensusNodeMode, ConfigureState};
+use crate::protocol_actuator::{ConsensusNodeMode, ConfigureState};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Command {
