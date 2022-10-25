@@ -16,17 +16,17 @@ protocols based on custom-interfaces of Protocol Actuator. Protocol Actuator wit
 
 ## Usage
 ### 1.Protocol customization phase
-In this phase, users need to integrate protocols into Protocol Actuator. Protocol Actuator in initial state has Default Interfaces for component interaction and Unfinished Custom Interfaces for protocol integration, but no protocol execution logic. Therefore, users need to implement the protocol based on the Unfinished Custom Interfaces to transform Protocol Actuator into a Runnable consensus node.
+In this phase, users need to integrate protocols into Protocol Actuator. Protocol Actuator in initial state has Default Interfaces for component interaction and Unfinished Custom Interfaces for protocol integration, but no protocol execution logic. Therefore, users need to implement the protocol based on the Unfinished Custom Interfaces to transform Protocol Actuator into a runnable consensus node.
 
 Details:
-Users need to implement ```ProtocolBehaviour``` trait to custom a unique protocol and can also refer to the ```/components/src/example_consensus_node/protocol``` for the specific implementation.Follows the functions.
+Users need to implement ```ProtocolBehaviour``` trait to custom a unique protocol and can also refer to the ```/components/src/example_consensus_node/protocol``` for the specific implementation. Follows the functions.
 
 PS: We have five types of Partial Synchronous BFT Protocols implemented in the ```/protocols``` containing Three types of PBFT and Two types of HotStuff.
 
 
 ``` dart
     ///
-    /// init the protocol's timeout notify by the param (timeout_notify)
+    /// init the protocol's timeout notify by the param (timeout_notify).
     ///
     fn init_timeout_notify(&mut self, timeout_notify: Arc<Notify>)
     ///
@@ -39,7 +39,7 @@ PS: We have five types of Partial Synchronous BFT Protocols implemented in the `
         current_peer_id: Vec<u8>,
     ) -> PhaseState
     ///
-    /// Receives a consensus request from the Controller node
+    /// Receives a consensus request from the Controller node.
     ///  
     fn receive_consensus_requests(&mut self, requests: Vec<Request>)
     ///
@@ -66,7 +66,7 @@ PS: We have five types of Partial Synchronous BFT Protocols implemented in the `
     ///
     /// It stores the map from phase_num(u8) to phase_name(String).
     ///
-    fn phase_map(&self) -> HashMap<u8,String>
+    fn phase_map(&self) -> HashMap<u8, String>
     ///
     /// It gets the current request the consensus protocol round is processing.
     ///
@@ -112,7 +112,7 @@ All configuration parameters are organized in the format of .toml files.
 
 After protocol customization and configration, users can start the test. There follows the steps.
 ### 4. Start Consensus Node
-First, Users need to provide the specified IP, port and a bool value (is or not the leader) to start the consensus node, as follows
+First, Users need to provide the specified IP, port and a bool value (is or not the leader) to start the consensus node, as follows.
 
 ``` cargo run -- --consensus 10.176.34.71 6666 true```
 ### 5. Start Controller
