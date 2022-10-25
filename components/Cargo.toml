@@ -1,0 +1,25 @@
+[package]
+name = "components"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.17.0", features = ["full"] }
+network = { path = "../network" }
+libp2p = "0.43.0"
+serde = { version = "1.0.136", features = ["derive"]}
+chrono = "0.4.19"
+utils = { path = "../utils" }
+threshold_crypto = "0.4.0"
+storage = { path = "../storage" }
+cli = { path = "../cli" }
+
+clap = "3.1.7"
+toml = "0.5.9"
+lazy_static = "1.4.0"
+trees = "0.4.2"
+serde_json = "1.0.85"
+mysql = "22.2.0"
+blsttc = "7.0.0"

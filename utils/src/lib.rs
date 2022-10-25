@@ -1,4 +1,6 @@
 pub mod coder;
+pub mod crypto;
+pub mod parse;
 
 #[cfg(test)]
 mod tests {

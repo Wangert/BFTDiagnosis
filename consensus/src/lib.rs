@@ -1,3 +1,7 @@
+pub mod pbft;
+pub mod basic_hotstuff;
+pub mod chain_hotstuff;
+
 #[cfg(test)]
 mod tests {
     #[test]

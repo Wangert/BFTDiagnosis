@@ -1,0 +1,7 @@
+[network]
+ip_addr = "10.177.40.71"
+# ip_addr = "192.168.140.204"
+ip_port = 11111
+
+[extra]
+conspire_request_send_duration = 2500

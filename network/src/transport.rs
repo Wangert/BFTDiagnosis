@@ -48,3 +48,26 @@ pub async fn create_transport(
         .timeout(std::time::Duration::from_secs(20))
         .boxed())
 }
+
+pub async fn create_base_transport(keypair: &Keypair) -> Result<Boxed<(PeerId, StreamMuxerBox)>, Error> {
+    let transport = {
+        let tcp = tcp::TcpConfig::new().nodelay(true);
+        let dns_tcp = dns::DnsConfig::system(tcp).await?;
+        let ws_dns_tcp = websocket::WsConfig::new(dns_tcp.clone());
+        dns_tcp.or_transport(ws_dns_tcp)
+    };
+
+    let noise_keys = noise::Keypair::<noise::X25519Spec>::new()
+        .into_authentic(keypair)
+        .expect("Signing libp2p-noise static DH keypair failed.");
+
+    Ok(transport
+        .upgrade(core::upgrade::Version::V1)
+        .authenticate(noise::NoiseConfig::xx(noise_keys).into_authenticated())
+        .multiplex(core::upgrade::SelectUpgrade::new(
+            yamux::YamuxConfig::default(),
+            mplex::MplexConfig::default(),
+        ))
+        .timeout(std::time::Duration::from_secs(20))
+        .boxed())
+}

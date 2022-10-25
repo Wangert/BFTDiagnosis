@@ -6,3 +6,17 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+network = { path = "../network"}
+cli = { path = "../cli" }
+utils = { path = "../utils" }
+consensus = { path = "../consensus" }
+components = { path = "../components" }
+BFTDiagnosis = { path = "../BFTDiagnosis" }
+protocols = { path = "../protocols" }
+futures = "0.3.21"
+tokio = { version = "1.17.0", features = ["full"] }
+chrono = "0.4.19"
+
+structopt = "0.3.26"
+libp2p = "0.43.0"
+

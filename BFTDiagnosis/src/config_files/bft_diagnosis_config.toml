@@ -1,0 +1,32 @@
+# Test Option Configuration
+[throughput]
+enable = false
+
+[latency]
+enable = true
+
+[scalability]
+enable = false
+max = 4
+internal = 1
+
+# Security testing: crash and malicious behaviours
+[crash]
+enable = false
+max = 10
+
+[malicious]
+enable = false
+number_of_phase = 2
+# optional behaviours:
+# LeaderFeignDeath
+# LeaderSendAmbiguousMessage
+# LeaderDelaySendMessage
+# ReplicaNodeConspireForgeMessages
+behaviours = [
+    # "LeaderFeignDeath", 
+    # "LeaderSendAmbiguousMessage", 
+    # "LeaderDelaySendMessage",
+    "LeaderSendDuplicateMessage", 
+    # "ReplicaNodeConspireForgeMessages"
+    ]
