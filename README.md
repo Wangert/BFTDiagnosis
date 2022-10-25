@@ -151,3 +151,5 @@ Test results are stored in both local memory and Mysql-database, and can be view
 ``` BFTDiagnosis(Analyzer)>> printLatencyResults ```
 
 ``` mysql -> select * from LatencyResults ```
+
+
