@@ -16,22 +16,22 @@ protocols based on custom-interfaces of Protocol Actuator. Protocol Actuator wit
 
 ## Usage
 ### 1.Protocol customization phase
-In this phase, users need to integrate protocols into Protocol Actuator. Protocol Actuator in initial state has Default Interfaces for component interaction and Unfinished Custom Interfaces for protocol integration, but no protocol execution logic. Therefore, users need to implement the protocol based on the Unfinished Custom Interfaces to transform Protocol Actuator into a Runnable consensus node.
+In this phase, users need to integrate protocols into Protocol Actuator. Protocol Actuator in initial state has Default Interfaces for component interaction and Unfinished Custom Interfaces for protocol integration, but no protocol execution logic. Therefore, users need to implement the protocol based on the Unfinished Custom Interfaces to transform Protocol Actuator into a runnable consensus node.
 
 Details:
-Users need to implement ```ProtocolBehaviour``` trait to custom a unique protocol and can also refer to the ```/components/src/example_consensus_node/protocol``` for the specific implementation.Follows the functions.
+Users need to implement ```ProtocolBehaviour``` trait to custom a unique protocol and can also refer to the ```/components/src/example_consensus_node/protocol``` for the specific implementation. Follows the functions.
 
 PS: We have five types of Partial Synchronous BFT Protocols implemented in the ```/protocols``` containing Three types of PBFT and Two types of HotStuff.
 
 
 ``` dart
     ///
-    ///   init the protocol's timeout notify by the param (timeout_notify)
+    /// init the protocol's timeout notify by the param (timeout_notify).
     ///
     fn init_timeout_notify(&mut self, timeout_notify: Arc<Notify>)
     ///
-    ///     In addition to the default network startup and key distribution.
-    ///     the protocol may have additional initiators that can be added to this method.
+    /// In addition to the default network startup and key distribution.
+    /// the protocol may have additional initiators that can be added to this method.
     ///  
     fn extra_initial_start(
         &mut self,
@@ -39,11 +39,11 @@ PS: We have five types of Partial Synchronous BFT Protocols implemented in the `
         current_peer_id: Vec<u8>,
     ) -> PhaseState
     ///
-    ///     Receives a consensus request from the Controller node
+    /// Receives a consensus request from the Controller node.
     ///  
     fn receive_consensus_requests(&mut self, requests: Vec<Request>)
     ///
-    ///     Consensus protocol's message handler,it handles the logic of the consensus protocol.
+    /// Consensus protocol's message handler,it handles the logic of the consensus protocol.
     /// 
     fn consensus_protocol_message_handler(&mut self, _msg: &[u8],current_peer_id: Vec<u8>,
         peer_id: Option<PeerId>) -> PhaseState
@@ -52,84 +52,100 @@ PS: We have five types of Partial Synchronous BFT Protocols implemented in the `
     ///  
     fn get_current_phase(&mut self, _msg: &[u8]) -> u8
     ///
-    ///     Reset all the running data of the consensus protocol.
+    /// Reset all the running data of the consensus protocol.
     ///  
     fn protocol_reset(&mut self)
     ///
-    ///     View_timeout_handler contains what to do when a view times out. 
+    /// View_timeout_handler contains what to do when a view times out. 
     ///
     fn view_timeout_handler(&mut self,current_peer_id: PeerId) -> PhaseState
     ///
-    ///     It serializes the consensus data structure and generate a map fron phase_num(u8) to serialized data.
+    /// It serializes the consensus data structure and generate a map fron phase_num(u8) to serialized data.
     ///  
     fn protocol_phases(&mut self) -> HashMap<u8, Vec<u8>>
     ///
-    ///     It stores the map from phase_num(u8) to phase_name(String).
+    /// It stores the map from phase_num(u8) to phase_name(String).
     ///
-    fn phase_map(&self) -> HashMap<u8,String>
+    fn phase_map(&self) -> HashMap<u8, String>
     ///
-    ///     It gets the current request the consensus protocol round is processing.
+    /// It gets the current request the consensus protocol round is processing.
     ///
     fn current_request(&self) -> Request
     ///
-    ///     It checks whether this node is the leader.
+    /// It checks whether this node is the leader.
     ///
     fn is_leader(&self, current_peer_id: Vec<u8>) -> bool
     ///
-    ///     It serializes the request data structure.
+    /// It serializes the request data structure.
     ///
     fn generate_serialized_request_message(&self, request: &Request) -> Vec<u8>
     ///
-    ///     It checks whether the given request has been taken to the consensus process.
+    /// It checks whether the given request has been taken to the consensus process.
     ///
     fn check_taken_request(&self,request:Vec<u8>) -> bool
     ///
-    ///     It sets the request.
+    /// It sets the request.
     ///
     fn set_current_request(&mut self, request: &Request)
 ```
+### 2. Create the ```main``` Function
+After the protocol customization process is complete, create the main function to run.
+For example, the following is the PBFT protocol:
 
-### 2. Set the Configuration File
+``` dart
+    #[tokio::main]
+    async fn main() -> Result<(), Box<dyn Error>> {
+        let mut framework: BFTDiagnosisFramework<_> = BFTDiagnosisFramework::new();
+
+        let consensus_node: ProtocolActuator<PBFTProtocol> = ProtocolActuator::new();
+        framework.set_consensus_node(consensus_node);
+
+        framework.run().await?;
+        Ok(())
+    }
+```
+
+### 3. Set the Configuration File
 Users needs to set the protocol type, test items and testing parameters through the configuration file in ```BFTDiagnosis/src/config_files```.
 
 All configuration parameters are organized in the format of .toml files.
 
-After protocol customization and configration,users can start the test.There follows the steps.
-### 3. Start Consensus Node
-First, Users need to provide the specified IP, port and a bool value(is or not the leader) to start the consensus node, as follows
+After protocol customization and configration, users can start the test. There follows the steps.
+### 4. Start Consensus Node
+First, Users need to provide the specified IP, port and a bool value (is or not the leader) to start the consensus node, as follows.
 
 ``` cargo run -- --consensus 10.176.34.71 6666 true```
-### 4. Start Controller
-Then, Users need to start the controller.There follows the steps.
+### 5. Start Controller
+Then, Users need to start the controller. There follows the steps.
 
 ``` cargo run -- --controller ```
-### 5. Start Analyzer
-Then, Users need to start the Analyzer.There follows the steps.
+### 6. Start Analyzer
+Then, Users need to start the Analyzer. There follows the steps.
 
 ``` cargo run -- --analyzer ```
-### 6. Init
-Controller and Analyzer each perform initialization operations
+### 7. Init
+Controller and Analyzer each perform initialization operations.
 
 ``` BFTDiagnosis(Controller) >> init ```
 
 ``` BFTDiagnosis(Analyzer)   >> init ```
-### 7. Controller set the TestItem 
-Controller configures the test items and transmits them to Analyzer
+### 8. Controller set the TestItem 
+Controller configures the test items and transmits them to Analyzer.
 
 ``` BFTDiagnosis(Controller)>> configureAnalyzer ``` 
-### 8. Controller set the state of Consensus Nodes
+### 9. Controller set the state of Consensus Nodes
 Controller set the state of Consensus Nodes by sending messages to Consensus Nodes.
 
 ``` BFTDiagnosis(Controller)>> configureConsensusNode  ```
-### 9. Protocol Running
+### 10. Protocol Running
 Controller sends commands to Consensus Nodes to initiate the process of the consensus protocol.
 
 ``` BFTDiagnosis(Controller)>> protocolStart ```
-### 10. Start testing
+### 11. Start testing
 Controller sends a command to Analyzer to initiate the process of the test.
 
 ``` BFTDiagnosis(Controller)>> startTest ```
-### 11. View the results
+### 12. View the results
 Test results are stored in both local memory and Mysql-database, and can be viewed through both print and database queries.
 
 ``` BFTDiagnosis(Analyzer)>> printLatencyResults ```
