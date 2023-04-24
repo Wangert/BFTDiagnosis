@@ -5,6 +5,7 @@ use std::{
     time::Duration,
 };
 
+use async_std::task;
 use libp2p::{
     gossipsub::{
         Gossipsub, GossipsubConfigBuilder, GossipsubMessage, MessageAuthenticity,
@@ -16,7 +17,7 @@ use libp2p::{
 };
 
 use crate::{
-    p2p_protocols::{base_behaviour::BaseBehaviour, unicast::behaviour::Unicast},
+    p2p_protocols::{base_behaviour::BaseBehaviour, unicast::behaviour::Unicast, floodsub::behaviour::Floodsub},
     transport::create_base_transport,
 };
 
@@ -73,20 +74,24 @@ impl BaseSwarm {
         //     gossipsub_config,
         // )
         // .expect("Gossipsub correct configuration");
-
+        // let floodsub = Floodsub::new(peer_id.clone());
+        let floodsub = Floodsub::new(peer_id.clone());
         let gossipsub: Gossipsub = Gossipsub::new(
             MessageAuthenticity::Author(peer_id.clone()),
             gossipsub_config,
         )
         .expect("Gossipsub correct configuration");
-
+    
+        
         // create mdns
         let mdns = Mdns::new(MdnsConfig::default()).await?;
-
+        // 修改过
+        // let mdns = task::block_on(Mdns::new(MdnsConfig::default()))?;
         // create BaseBehaviour
         let base_behaviour = BaseBehaviour {
             unicast,
             gossipsub,
+            floodsub,
             mdns,
         };
 

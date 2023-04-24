@@ -3,6 +3,7 @@ use libp2p::{
     mdns::{Mdns, MdnsEvent},
     NetworkBehaviour,
 };
+use crate::p2p_protocols::floodsub::behaviour::{Floodsub, FloodsubEvent};
 
 use super::unicast::behaviour::{Unicast, UnicastEvent};
 
@@ -11,6 +12,7 @@ use super::unicast::behaviour::{Unicast, UnicastEvent};
 pub struct BaseBehaviour {
     pub unicast: Unicast,
     pub gossipsub: Gossipsub,
+    pub floodsub: Floodsub,
     pub mdns: Mdns,
 }
 
@@ -18,6 +20,7 @@ pub struct BaseBehaviour {
 pub enum OutEvent {
     Unicast(UnicastEvent),
     Gossipsub(GossipsubEvent),
+    Floodsub(FloodsubEvent),
     Mdns(MdnsEvent),
 }
 
@@ -30,6 +33,12 @@ impl From<UnicastEvent> for OutEvent {
 impl From<MdnsEvent> for OutEvent {
     fn from(v: MdnsEvent) -> Self {
         Self::Mdns(v)
+    }
+}
+
+impl From<FloodsubEvent> for OutEvent {
+    fn from(v: FloodsubEvent) -> Self {
+        Self::Floodsub(v)
     }
 }
 

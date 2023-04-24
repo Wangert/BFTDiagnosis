@@ -2,10 +2,10 @@ use std::{cmp::Ordering, collections::HashMap, sync::Arc, time::Duration};
 
 use libp2p::PeerId;
 use storage::database::LevelDB;
-use tokio::sync::{
+use tokio::{sync::{
     mpsc::{self, Receiver, Sender},
     Notify,
-};
+}, time};
 use utils::{
     coder::{self},
     crypto::threshold_blsttc::TBLSKey,
@@ -658,6 +658,7 @@ impl Executor {
         }
 
         println!("The block command is executable:");
+
         println!("{:?}", justify.block);
 
         // stop view timeout
@@ -665,6 +666,9 @@ impl Executor {
 
         // send End message
         self.send_end_message(&justify.block).await;
+        let dt = chrono::Local::now();
+        let timestamp: i64 = dt.timestamp_millis();
+        println!("Request:{}结束时间为：{}",justify.clone().block.cmd,timestamp);
         // newview
         self.newview(current_peer_id).await;
     }

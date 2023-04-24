@@ -14,3 +14,6 @@ cuckoofilter = "0.5.0"
 rand = "0.8.5"
 chrono = "0.4.19"
 utils = { path = "../utils" }
+fnv = "1.0"
+smallvec = "1.6.1"
+async-std = { version = "1.6.2", features = ["attributes"] }

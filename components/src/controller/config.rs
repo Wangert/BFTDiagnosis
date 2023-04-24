@@ -22,11 +22,23 @@ use crate::message::MaliciousBehaviour;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct BFTDiagnosisConfig {
+    pub consensus: Option<Consensus>,
+    pub delay: Option<Deploy>,
     pub throughput: Option<Throughput>,
     pub latency: Option<Latency>,
     pub scalability: Option<Scalability>,
     pub crash: Option<Crash>,
     pub malicious: Option<Malicious>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Consensus {
+    pub batch_size: Option<u16>
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Deploy {
+    pub delay: Option<u16>
 }
 
 #[derive(Debug, Deserialize, Clone)]

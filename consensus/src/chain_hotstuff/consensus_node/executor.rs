@@ -262,7 +262,7 @@ impl Executor {
         println!("");
         println!("");
         // leader handle generic
-        self.handle_generic(&generic, current_peer_id).await;
+        // self.handle_generic(&generic, current_peer_id).await;
     }
 
     pub async fn handle_newview_generic(&mut self, generic: &Generic) {
@@ -423,6 +423,10 @@ impl Executor {
             println!("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
             println!("");
             println!("");
+
+            let dt = chrono::Local::now();
+            let timestamp: i64 = dt.timestamp_millis();
+            println!("Request:{}结束时间为：{}",b_4.cmd,timestamp);
         } else {
             eprintln!("Not formed three-chain.");
             return;

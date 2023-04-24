@@ -8,7 +8,7 @@ use libp2p::{
     PeerId,
 };
 use network::{
-    p2p_protocols::{base_behaviour::OutEvent, unicast::behaviour::UnicastEvent},
+    p2p_protocols::{base_behaviour::OutEvent, unicast::behaviour::UnicastEvent, floodsub::{topic::Topic, behaviour::FloodsubEvent}},
     peer::Peer,
 };
 
@@ -43,10 +43,22 @@ impl Node {
         }
     }
 
+    pub fn peer(&self) -> PeerId {
+        self.id
+    }
+
     pub async fn network_peer_start(&mut self) -> Result<(), Box<dyn Error>> {
         self.network_peer.swarm_start(false).await?;
+        let peer = self.peer();
+
+        let topic = Topic::new("Consensus");
+        self.network_peer.network_swarm_mut().behaviour_mut().floodsub.subscribe(topic);
+       
+        self.network_peer.network_swarm_mut().behaviour_mut().floodsub.add_node_to_partial_view(peer);
+
         self.message_handler_start().await;
 
+        
         Ok(())
     }
 
@@ -57,6 +69,9 @@ impl Node {
             panic!("【network_peer】: Not build swarm")
         };
 
+        let peer = self.id.clone();
+        
+
         let mut stdin = io::BufReader::new(io::stdin()).lines();
 
         loop {
@@ -64,7 +79,7 @@ impl Node {
                 line = stdin.next_line() => {
                     if let Ok(Some(command)) = line {
                         println!("{}", command);
-                        if command.eq("DistributeKey") {
+                        if command.eq("key") {
                             let distribute_tbls_key_vec = generate_bls_keys(&self.connected_nodes, self.executor.state.fault_tolerance_count);
 
                             println!("key count: {}", distribute_tbls_key_vec.len());
@@ -93,22 +108,29 @@ impl Node {
 
                             let msg = Message { msg_type: MessageType::ConsensusNodePKsInfo(consensus_node_pks) };
                             let serialized_msg = coder::serialize_into_bytes(&msg);
-                            let topic = IdentTopic::new("Consensus");
-                            if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), serialized_msg) {
-                                eprintln!("Publish message error:{:?}", e);
-                            }
+                            // let topic = IdentTopic::new("Consensus");
+                            // if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), serialized_msg) {
+                            //     eprintln!("Publish message error:{:?}", e);
+                            // }
+                            
+                            let topic = Topic::new("Consensus");
+                            swarm.behaviour_mut().floodsub.publish(topic,serialized_msg);
                         } else {
-
+                            
                             let count = command.parse::<usize>().unwrap();
                             let msg_vec = create_requests(count);
 
                             for msg in msg_vec {
-                                println!("Request: {:?}", msg);
+                                let dt = chrono::Local::now();
+                                let timestamp: i64 = dt.timestamp_millis();
+                                println!("Request: {:?}，发送时间为：{}", msg,timestamp); 
                                 let serialized_msg = serialize_into_bytes(&msg);
-                                let topic = IdentTopic::new("Consensus");
-                                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), serialized_msg) {
-                                    eprintln!("Publish message error:{:?}", e);
-                                }
+                                // let topic = IdentTopic::new("Consensus");
+                                // if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), serialized_msg) {
+                                //     eprintln!("Publish message error:{:?}", e);
+                                // }
+                                let topic = Topic::new("Consensus");
+                                swarm.behaviour_mut().floodsub.publish(topic,serialized_msg);
                             }
                         };
                     }
@@ -130,11 +152,17 @@ impl Node {
                     })) => {
                         self.executor.message_handler(&self.id.to_bytes(), &message.data).await;
                     }
+                    SwarmEvent::Behaviour(OutEvent::Floodsub(
+                        FloodsubEvent::Message(message)
+                    )) => {
+                        self.executor.message_handler(&self.id.to_bytes(), &message.data).await;
+                    }
                     SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
                         for (peer, _) in list {
                             println!("Discovered {:?}", &peer);
                             swarm.behaviour_mut().unicast.add_node_to_partial_view(&peer);
                             swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
+                            swarm.behaviour_mut().floodsub.add_node_to_partial_view(peer.clone());
                             self.connected_nodes.insert(peer.to_string(), peer.clone());
                         }
                     }
@@ -142,6 +170,7 @@ impl Node {
                         for (peer, _) in list {
                             if !swarm.behaviour_mut().mdns.has_node(&peer) {
                                 swarm.behaviour_mut().unicast.remove_node_from_partial_view(&peer);
+                                swarm.behaviour_mut().floodsub.remove_node_from_partial_view(&peer);
                                 swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer);
                                 self.connected_nodes.remove(&peer.to_string());
                             }

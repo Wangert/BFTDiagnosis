@@ -42,6 +42,8 @@ impl ControllerNode {
 
     pub async fn network_peer_start(&mut self) -> Result<(), Box<dyn Error>> {
         self.network_peer.swarm_start(false).await?;
+        let topic = IdentTopic::new("DistributePK");
+        self.network_peer.network_swarm_mut().behaviour_mut().gossipsub.subscribe(&topic);
         self.message_handler_start().await;
 
         Ok(())
@@ -61,10 +63,10 @@ impl ControllerNode {
                 line = stdin.next_line() => {
                     if let Ok(Some(command)) = line {
                         println!("{}", command);
-                        if command.eq("DistributePK") {
+                        if command.eq("key") {
                             let msg = Message { msg_type: MessageType::DistributePK };
                             let serialized_msg = coder::serialize_into_bytes(&msg);
-                            let topic = IdentTopic::new("consensus");
+                            let topic = IdentTopic::new("Consensus");
                             if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), serialized_msg) {
                                 eprintln!("Publish message error:{:?}", e);
                             }
@@ -90,6 +92,9 @@ impl ControllerNode {
 
                             println!("Deserialzed_msg: {:?}", &deserialized_msg);
                             swarm.behaviour_mut().unicast.send_message(&peer_id, serialized_msg);
+                            let dt = chrono::Local::now();
+                            let timestamp: i64 = dt.timestamp_millis();
+                            println!("发送时间为：{}",timestamp);
                             //self.executor.state.client_state = ClientState::Waiting;
                             //self.send_request("operation_test", &peer);
                         };

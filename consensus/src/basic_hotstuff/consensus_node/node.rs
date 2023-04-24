@@ -48,7 +48,10 @@ impl Node {
     }
 
     pub async fn network_peer_start(&mut self) -> Result<(), Box<dyn Error>> {
+        
         self.network_peer.swarm_start(true).await?;
+        let topic = IdentTopic::new("Consensus");
+        self.network_peer.network_swarm_mut().behaviour_mut().gossipsub.subscribe(&topic);
         self.executor.proposal_state_check();
         self.message_handler_start().await;
 

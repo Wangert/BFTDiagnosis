@@ -994,6 +994,9 @@ impl ControllerExecutor {
             let result_str = std::str::from_utf8(&msg.result[..]).unwrap();
             println!("###############################################################");
             println!("Request consesnus successful, result is {}", result_str);
+            let dt = chrono::Local::now();
+            let timestamp: i64 = dt.timestamp_millis();
+            println!("Request:{}结束时间为：{}",result_str,timestamp);
         }
     }
 }

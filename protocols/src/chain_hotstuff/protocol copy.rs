@@ -233,15 +233,19 @@ impl ChainHotstuffProtocol {
             if self.newview_flag && self.vote_flag {
                 self.newview_flag = false;
                 self.vote_flag = false;
+                // println!("节点ID:{:?}", current_peer_id.to_string());
                 println!("接收到足够多的new_view");
-
+                // println!(
+                //     "state.generic_qc:{:?}",
+                //     self.state.generic_qc.clone().unwrap().view_num
+                // );
                 let high_qc = self
                     .log
-                    .get_high_qc_by_view(generic.view_num, self.state.temp_qc.clone());
+                    .get_high_qc_by_view(generic.view_num, self.state.generic_qc.clone());
 
                 // println!("high_qc:{:?}", high_qc.clone().unwrap().view_num);
                 self.state.high_qc = high_qc.clone();
-                // self.state.generic_qc = high_qc;
+                self.state.generic_qc = high_qc;
 
                 return PhaseState::Over(None);
             }
@@ -278,10 +282,6 @@ impl ChainHotstuffProtocol {
 
         if let Some(locked_qc) = &self.state.locked_qc {
             let locked_qc_block_hash = get_block_hash(&locked_qc.block);
-            println!(
-                "new_qc.view:{},locked_qc.view:{}",
-                qc.view_num, locked_qc.view_num
-            );
             (qc.view_num > locked_qc.view_num) || block.parent_hash.eq(&locked_qc_block_hash)
         } else {
             (qc.view_num > 0) || block.parent_hash.eq("")
@@ -309,7 +309,7 @@ impl ChainHotstuffProtocol {
         let block = Block {
             cmd: request.cmd.clone(),
             parent_hash,
-            // justify: Box::new(self.state.high_qc.clone()),
+            justify: Box::new(self.state.high_qc.clone()),
         };
         let m = if let Some(t) = self.state.high_qc.clone() {
             t.block.cmd.clone()
@@ -322,7 +322,7 @@ impl ChainHotstuffProtocol {
         let generic = Generic {
             view_num: self.state.view,
             block: Some(block),
-            justify: self.state.high_qc.clone(),
+            justify: None,
             from_peer_id: current_peer_id.to_bytes(),
         };
         let msg = ConsensusMessage {
@@ -444,16 +444,7 @@ impl ChainHotstuffProtocol {
 
         let mut qc = QC::new(vote.view_num, &vote.block);
         qc.set_signature(&signature);
-
-        self.state.temp_qc = Some(qc);
-        // self.state.update_state(Some(qc));
-        // println!(
-        //     "Leader更新后的状态：\nGeneric_QC:{:?}, Locked_QC:{:?}, Commit_QC:{:?}",
-        //     self.state.generic_qc.clone(),
-        //     self.state.locked_qc.clone(),
-        //     self.state.commit_qc.clone()
-        // );
-
+        self.state.generic_qc = Some(qc);
         // self.state.generic_qc = handle_qc(Some(qc.clone()));
         // println!("handle前：{:?}",qc.clone());
         // println!("handle后：{:?}",self.state.generic_qc.clone());
@@ -461,12 +452,8 @@ impl ChainHotstuffProtocol {
         if self.vote_flag && self.newview_flag {
             self.vote_flag = false;
             self.newview_flag = false;
-            let high_qc = self
-                .log
-                .get_high_qc_by_view(vote.view_num, self.state.temp_qc.clone());
 
-            // println!("high_qc:{:?}", high_qc.clone().unwrap().view_num);
-            self.state.high_qc = high_qc.clone();
+            
             return PhaseState::Over(None);
         }
 
@@ -478,14 +465,11 @@ impl ChainHotstuffProtocol {
         generic: &Generic,
         current_peer_id: PeerId,
     ) -> PhaseState {
-        let is_leader = self.is_leader(current_peer_id.to_bytes());
-        // sleep(Duration::from_millis(1000));
         println!("当前的Generic为普通Generic，开始处理！");
         let dt = chrono::Local::now();
         let timestamp: i64 = dt.timestamp_millis();
         println!("接收到Generic时间：{}", timestamp);
         let mut send_query = VecDeque::new();
-
         let b_1 = if let Some(b) = &generic.block {
             println!("b1为：{:?}", b.clone());
             b
@@ -493,15 +477,8 @@ impl ChainHotstuffProtocol {
             eprintln!("Generic block is not found.");
             return PhaseState::Complex(None, send_query);
         };
-        if let Some(qc) = generic.justify.clone() {
-            let b_1_hash = get_block_hash(&qc.block.clone());
-            if !b_1.parent_hash.eq(&b_1_hash) {
-                return PhaseState::Complex(None, send_query);
-            }
-        } else {
-        }
 
-        if !self.safe_node(b_1, &generic.justify) {
+        if !self.safe_node(b_1, &b_1.justify) {
             eprintln!("Safenode authentication failed");
             return PhaseState::Complex(None, send_query);
         } else {
@@ -583,36 +560,72 @@ impl ChainHotstuffProtocol {
         let timestamp: i64 = dt.timestamp_millis();
         println!("准备好视图切换消息,{}", timestamp);
 
-        // if is_leader {
-        //     if let Some(qc) = self.state.commit_qc.clone() {
-        //         let b_4 = qc.block;
-        //         println!("");
-        //         println!("");
-        //         println!("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
-        //         println!("+  Execute new commands, current command is:");
-        //         println!("+  {:?}", b_4.cmd);
-        //         println!("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
-        //         println!("");
-        //         println!("");
-        //         let request = Request {
-        //             cmd: b_4.clone().cmd,
-        //         };
+        // start pre-commit phase on b_1's parent
+        let b_2 = if let Some(qc) = &*b_1.justify {
+            println!("b2为：{:?}", &qc.block.clone().cmd);
+            &qc.block
+        } else {
+            return PhaseState::Complex(None, send_query);
+        };
 
-        //         self.taken_requests
-        //             .remove(&coder::serialize_into_bytes(&request));
+        let b_2_hash = get_block_hash(b_2);
+        if b_1.parent_hash.eq(&b_2_hash) {
+            self.state.generic_qc = *b_1.justify.clone();
+            // self.state.generic_qc = handle_qc(*b_1.justify.clone()) ;
+            
+        } else {
+            eprintln!("Not formed one-chain.");
+            return PhaseState::Complex(None, send_query);
+        }
 
-        //         return PhaseState::Complex(Some(request), send_query);
-        //     } else {
-        //         return PhaseState::Complex(None, send_query);
-        //     }
-        // } else {
-        //     return self
-        //         .state
-        //         .update_state_and_output(generic.clone().justify, send_query);
-        // }
-        self.state
-            .update_state_and_output(generic.clone().justify, send_query)
-        // taken_request还没处理。别忘了
+        // start commit phase on b_1's grandparent
+        let b_3 = if let Some(qc) = &*b_2.justify {
+            println!("b3为：{:?}", &qc.block.clone().cmd);
+            &qc.block
+        } else {
+            return PhaseState::Complex(None, send_query);
+        };
+
+        let b_3_hash = get_block_hash(b_3);
+        if b_2.parent_hash.eq(&b_3_hash) {
+            self.state.locked_qc = *b_2.justify.clone();
+        } else {
+            eprintln!("Not formed two-chain.");
+            return PhaseState::Complex(None, send_query);
+        }
+
+        // start decide phase on b_1's great-grandparent
+        let b_4 = if let Some(qc) = &*b_3.justify {
+            println!("b4为：{:?}", &qc.block.clone().cmd);
+            &qc.block
+        } else {
+            return PhaseState::Complex(None, send_query);
+        };
+
+        let b_4_hash = get_block_hash(&b_4);
+        if b_3.parent_hash.eq(&b_4_hash) {
+            // b_3.justify = None;
+            println!("");
+            println!("");
+            println!("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+            println!("+  Execute new commands, current command is:");
+            println!("+  {:?}", b_4.cmd);
+            println!("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+            println!("");
+            println!("");
+
+            let request = Request {
+                cmd: b_4.clone().cmd,
+            };
+
+            self.taken_requests
+                .remove(&coder::serialize_into_bytes(&request));
+
+            return PhaseState::Complex(Some(request), send_query);
+        } else {
+            eprintln!("Not formed three-chain.");
+            return PhaseState::Complex(None, send_query);
+        }
     }
 
     pub fn distribute_keys(&mut self, current_peer_id: PeerId) -> PhaseState {
@@ -679,7 +692,7 @@ impl ChainHotstuffProtocol {
 
 impl ProtocolBehaviour for ChainHotstuffProtocol {
     fn init_timeout_notify(&mut self, timeout_notify: Arc<Notify>) {
-        self.view_timeout_notify = timeout_notify;
+        // self.view_timeout_notify = timeout_notify;
     }
 
     fn extra_initial_start(
@@ -800,6 +813,7 @@ impl ProtocolBehaviour for ChainHotstuffProtocol {
         let block = Block {
             cmd: "test".to_string(),
             parent_hash: "test".to_string(),
+            justify: Box::new(None),
         };
 
         let qc = QC {
@@ -832,21 +846,59 @@ impl ProtocolBehaviour for ChainHotstuffProtocol {
         hash_map
     }
 
-    
+    // fn protocol_phases(&mut self) -> HashMap<u8, Vec<u8>> {
+    //     let mut hash_map:HashMap<u8,Vec<u8>> = HashMap::new();
+    //     println!("No security test interface is implemented！");
+    //     let block = Block {
+    //         cmd: "test".to_string(),
+    //         parent_hash: "test".to_string(),
+    //         justify: Box::new(None),
+    //     };
+
+    //     let qc = QC {
+    //         view_num: 1,
+    //         block: block.clone(),
+    //         signature: None,
+    //     };
+
+    //     let generic = Generic {
+    //         view_num: 1,
+    //         block: Some(block),
+    //         justify: Some(qc),
+    //         from_peer_id: vec![],
+    //     };
+
+    //     let vote = Vote {
+    //         view_num: 1,
+    //         block: block.clone(),
+    //         partial_signature: None,
+    //         from_peer_id: vec![1],
+    //     };
+
+    //     let generic_json_bytes = coder::serialize_into_json_str(&generic).as_bytes().to_vec();
+    //     let vote_json_bytes = coder::serialize_into_json_str(&vote).as_bytes().to_vec();
+
+    //     hash_map.insert(1, generic_json_bytes.clone());
+    //     hash_map.insert(2, vote_json_bytes.clone());
+
+    //     self.phase_map.insert(1, String::from("Generic"));
+    //     self.phase_map.insert(2, String::from("Vote"));
+
+    //     hash_map
+    // }
+
     fn protocol_reset(&mut self) {
         self.view_timeout_stop();
         self.state.view = 0;
         self.state.high_qc = None;
         self.state.generic_qc = None;
         self.state.locked_qc = None;
-        self.state.commit_qc = None;
-        self.state.temp_qc = None;
         self.state.current_leader = vec![];
         self.state.next_leader = vec![];
         self.state.node_count = 4;
         self.state.fault_tolerance_count = 1;
-        self.state.tf = 5;
-        self.state.current_view_timeout = 5;
+        self.state.tf = 10;
+        self.state.current_view_timeout = 10;
         // self.keypair = None;
         // self.consensus_nodes = HashMap::new();
         // self.pk_consensus_nodes = HashMap::new();
@@ -863,9 +915,8 @@ impl ProtocolBehaviour for ChainHotstuffProtocol {
     }
 
     fn view_timeout_handler(&mut self, current_peer_id: PeerId) -> PhaseState {
-        println!("进入超时处理");
         let current_view_timeout = self.state.current_view_timeout;
-        self.state.current_view_timeout = current_view_timeout * 1;
+        self.state.current_view_timeout = current_view_timeout * 2;
 
         // next view
         let msg = self.next_view(current_peer_id.clone());

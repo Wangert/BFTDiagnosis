@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use utils::coder::get_hash_str;
-
+use components::message::Request;
 use super::timer::Timeout;
 
 pub struct State {
@@ -23,6 +23,8 @@ pub struct State {
     pub prepared_timeout: Timeout,
     // Reach the commited state timeout
     pub commited_timeout: Timeout,
+    pub current_request: Request,
+    pub timeout_flag: bool,
 }
 
 pub struct ControllerState {
@@ -73,6 +75,10 @@ impl State {
             client_state: ClientState::NotRequest,
             prepared_timeout: Timeout::new(timeout_duration),
             commited_timeout: Timeout::new(timeout_duration),
+            current_request: Request {
+                cmd: "None".to_string(),
+            },
+            timeout_flag: false,
         }
     }
 

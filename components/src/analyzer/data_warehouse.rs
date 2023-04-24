@@ -1,22 +1,22 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fs::File, io::Write, fmt::format};
 
 use chrono::Local;
 use libp2p::PeerId;
 use mysql::{params, prelude::Queryable, PooledConn};
 
-use storage::mysql_db::MysqlDB;
+// use storage::mysql_db::MysqlDB;
 
 use crate::{
     common::get_request_hash,
     message::{ConsensusEndData, ConsensusStartData, Request, TestItem},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 // Store process data for consensus protocol
 pub struct DataWarehouse {
     test_start_time: u64,
 
-    mysql_db: MysqlDB,
+    // mysql_db: MysqlDB,
 
     // Throughput test data
     t_start_data: HashMap<String, ConsensusStartData>,
@@ -54,6 +54,10 @@ pub struct DataWarehouse {
 
     internal_round: u64,
     throughput_internal: u64,
+    data_writer: File,
+    performance_loss_data_writer: File,
+    security_loss_data_writer: File,
+    fluctuate_data_writer: File,
 }
 
 // Latency result
@@ -76,9 +80,13 @@ pub struct SecurityResult(Vec<Request>);
 
 impl DataWarehouse {
     pub fn new(url: &str) -> Self {
+        let mut bodong_data_writer = std::fs::File::create("C://BFT_data/log.txt").unwrap();
+        let mut performance_loss_data_writer = std::fs::File::create("./delay_log.txt").unwrap();
+        let mut security_loss_data_writer = std::fs::File::create("./statistics_log.txt").unwrap();
+        let mut fluctuate_data_writer = std::fs::File::create("./fluctuate_log.txt").unwrap();
         Self {
             test_start_time: 0,
-            mysql_db: MysqlDB::new(url),
+            // mysql_db: MysqlDB::new(url),
             t_start_data: HashMap::new(),
             t_end_data: HashMap::new(),
             t_start_data_computing: HashMap::new(),
@@ -102,131 +110,135 @@ impl DataWarehouse {
             malicious_results: HashMap::new(),
             internal_round: 0,
             throughput_internal: 0,
+            data_writer : bodong_data_writer,
+            performance_loss_data_writer,
+            security_loss_data_writer,
+            fluctuate_data_writer
         }
     }
 
-    pub fn print_throughput_results(&mut self) {
-        println!("\n");
-        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
-        println!("@@@@@@@@  Throughput Results   @@@@@@@@");
-        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+    // pub fn print_throughput_results(&mut self) {
+    //     println!("\n");
+    //     println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+    //     println!("@@@@@@@@  Throughput Results   @@@@@@@@");
+    //     println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
 
-        let mut start = 0;
-        loop {
-            let results = self.query_throughput_results(start, 100);
-            results.iter().for_each(|(round, peer_id, throughput)| {
-                println!("============");
-                println!("【{:?}】({:?}) ==> {:?}", round, peer_id, throughput);
-            });
+    //     let mut start = 0;
+    //     loop {
+    //         let results = self.query_throughput_results(start, 100);
+    //         results.iter().for_each(|(round, peer_id, throughput)| {
+    //             println!("============");
+    //             println!("【{:?}】({:?}) ==> {:?}", round, peer_id, throughput);
+    //         });
 
-            let count = results.len() as u64;
-            if 100 > count {
-                println!("Total count: {}", start + count);
-                break;
-            }
+    //         let count = results.len() as u64;
+    //         if 100 > count {
+    //             println!("Total count: {}", start + count);
+    //             break;
+    //         }
 
-            start += 100;
-        }
+    //         start += 100;
+    //     }
 
-        // for (index, result) in &self.throughput_results {
-        //     println!("============");
-        //     println!("【{:?}】 ==> {:?}", index, result);
-        // }
-    }
+    //     // for (index, result) in &self.throughput_results {
+    //     //     println!("============");
+    //     //     println!("【{:?}】 ==> {:?}", index, result);
+    //     // }
+    // }
 
-    pub fn print_latency_results(&mut self) {
-        println!("\n");
-        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
-        println!("@@@@@@@@    Latency Results    @@@@@@@@");
-        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+    // pub fn print_latency_results(&mut self) {
+    //     println!("\n");
+    //     println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+    //     println!("@@@@@@@@    Latency Results    @@@@@@@@");
+    //     println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
 
-        let mut start = 0;
-        loop {
-            let results = self.query_latency_results(start, 100);
-            results.iter().for_each(|(peer_id, request, latency)| {
-                println!("============");
-                println!("NodeID({:?}):", peer_id);
-                println!("{:?} ==> {:?}", request, latency);
-            });
+    //     let mut start = 0;
+    //     loop {
+    //         let results = self.query_latency_results(start, 100);
+    //         results.iter().for_each(|(peer_id, request, latency)| {
+    //             println!("============");
+    //             println!("NodeID({:?}):", peer_id);
+    //             println!("{:?} ==> {:?}", request, latency);
+    //         });
 
-            let count = results.len() as u64;
-            if 100 > results.len() {
-                println!("Total count: {}", start + count);
-                break;
-            }
+    //         let count = results.len() as u64;
+    //         if 100 > results.len() {
+    //             println!("Total count: {}", start + count);
+    //             break;
+    //         }
 
-            start += 100;
-        }
-        // for (peer_id, latency_vec) in &self.latency_results {
-        //     println!("============");
-        //     println!("NodeID({:?}):", peer_id);
-        //     for r in latency_vec {
-        //         println!("{:?} ==> {}", r.request, r.latency);
-        //         println!("-------------");
-        //     }
-        // }
-    }
+    //         start += 100;
+    //     }
+    //     // for (peer_id, latency_vec) in &self.latency_results {
+    //     //     println!("============");
+    //     //     println!("NodeID({:?}):", peer_id);
+    //     //     for r in latency_vec {
+    //     //         println!("{:?} ==> {}", r.request, r.latency);
+    //     //         println!("-------------");
+    //     //     }
+    //     // }
+    // }
 
-    pub fn print_scalability_throughput_results(&mut self) {
-        println!("\n");
-        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
-        println!("@@@  Scalability Throughput Results @@@");
-        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+    // pub fn print_scalability_throughput_results(&mut self) {
+    //     println!("\n");
+    //     println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+    //     println!("@@@  Scalability Throughput Results @@@");
+    //     println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
 
-        let items = self.query_scalability_items();
-        items.iter().for_each(|item| {
-            println!("***************************");
-            println!("{}", item);
-            println!("***************************");
-            let mut start = 0;
-            loop {
-                let results = self.query_scalability_throughput_results(&item, start, 100);
-                results.iter().for_each(|(round, peer_id, throughput)| {
-                    println!("============");
-                    println!("【{:?}】({:?}) ==> {:?}", round, peer_id, throughput);
-                });
+    //     let items = self.query_scalability_items();
+    //     items.iter().for_each(|item| {
+    //         println!("***************************");
+    //         println!("{}", item);
+    //         println!("***************************");
+    //         let mut start = 0;
+    //         loop {
+    //             let results = self.query_scalability_throughput_results(&item, start, 100);
+    //             results.iter().for_each(|(round, peer_id, throughput)| {
+    //                 println!("============");
+    //                 println!("【{:?}】({:?}) ==> {:?}", round, peer_id, throughput);
+    //             });
 
-                let count = results.len() as u64;
-                if 100 > count {
-                    println!("Total count: {}", start + count);
-                    break;
-                }
+    //             let count = results.len() as u64;
+    //             if 100 > count {
+    //                 println!("Total count: {}", start + count);
+    //                 break;
+    //             }
 
-                start += 100;
-            }
-        });
-    }
+    //             start += 100;
+    //         }
+    //     });
+    // }
 
-    pub fn print_scalability_latency_results(&mut self) {
-        println!("\n");
-        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
-        println!("@@@@  Scalability Latency Results  @@@@");
-        println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+    // pub fn print_scalability_latency_results(&mut self) {
+    //     println!("\n");
+    //     println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
+    //     println!("@@@@  Scalability Latency Results  @@@@");
+    //     println!("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@");
 
-        let items = self.query_scalability_items();
-        items.iter().for_each(|item| {
-            println!("***************************");
-            println!("{}", item);
-            println!("***************************");
-            let mut start = 0;
-            loop {
-                let results = self.query_scalability_latency_results(&item, start, 100);
-                results.iter().for_each(|(peer_id, request, latency)| {
-                    println!("============");
-                    println!("NodeID({:?}):", peer_id);
-                    println!("{:?} ==> {:?}", request, latency);
-                });
+    //     // let items = self.query_scalability_items();
+    //     items.iter().for_each(|item| {
+    //         println!("***************************");
+    //         println!("{}", item);
+    //         println!("***************************");
+    //         let mut start = 0;
+    //         loop {
+    //             // let results = self.query_scalability_latency_results(&item, start, 100);
+    //             results.iter().for_each(|(peer_id, request, latency)| {
+    //                 println!("============");
+    //                 println!("NodeID({:?}):", peer_id);
+    //                 println!("{:?} ==> {:?}", request, latency);
+    //             });
 
-                let count = results.len() as u64;
-                if 100 > results.len() {
-                    println!("Total count: {}", start + count);
-                    break;
-                }
+    //             let count = results.len() as u64;
+    //             if 100 > results.len() {
+    //                 println!("Total count: {}", start + count);
+    //                 break;
+    //             }
 
-                start += 100;
-            }
-        });
-    }
+    //             start += 100;
+    //         }
+    //     });
+    // }
 
     pub fn print_crash_results(&self) {
         println!("\n");
@@ -344,7 +356,7 @@ impl DataWarehouse {
                 let throughput = (count as f64
                     / (0.001 * (self.internal_round * self.throughput_internal) as f64))
                     as u64;
-                self.insert_throughput_result(index, &peer_id, throughput);
+                // self.insert_throughput_result(index, &peer_id, throughput);
                 // self.throughput_results.insert((index, peer_id), throughput);
             });
 
@@ -359,34 +371,93 @@ impl DataWarehouse {
         self.t_start_data_computing.clear();
         self.t_end_data_computing.clear();
     }
+    pub fn compute_throughput_l(&mut self) {
+        self.prepare_compute_throughput();
+        let data_computing = self.t_end_data_computing.clone();
+        // println!("throughout:{:?}", data_computing.clone());
+        data_computing.iter().for_each(|(k, _)| {
+            if let Some(_) = self.t_start_data_computing.get(&k.1) {
+                self.update_request_count_with_peer(k.0);
 
+                self.t_end_data_computing.remove(k);
+            }
+        });
+
+        let throughput_mid_results = self.throughput_mid_results.clone();
+        throughput_mid_results
+            .iter()
+            .for_each(|(&peer_id, &count)| {
+                // println!(
+                //     "Count:{}; Round:{}; Internal:{}",
+                //     count, self.internal_round, self.throughput_internal
+                // );
+                // let throughput = (count as f64
+                //     / (0.001 * (self.internal_round * self.throughput_internal) as f64))
+                //     as u64;
+                // self.insert_throughput_result(index, &peer_id, throughput);
+                // self.throughput_results.insert((index, peer_id), throughput);
+                println!("peer: {},count : {}",peer_id,count);
+                let delay_s = format!("Throughput:{}\n",count);
+                self.performance_loss_data_writer.write_all(delay_s.as_bytes()).expect("写入失败");
+                
+
+            });
+    }
+    
     pub fn compute_latency(&mut self) {
         self.prepare_compute_latency();
 
         let data_computing = self.l_end_data_computing.clone();
+        let mut count: u64 = 1;
+        let mut total: u64 = 0;
         data_computing.iter().for_each(|(k, end_data)| {
             if let Some(start_data) = self.l_start_data_computing.get(&k.1) {
-                println!(
-                    "latency{},{}",
-                    end_data.completed_time.clone(),
-                    start_data.start_time
-                );
+                // println!(
+                //     "latency{},{}",
+                //     end_data.completed_time.clone(),
+                //     start_data.start_time
+                // );
+                let s = format!("Start:{},End:{}\n",start_data.request.cmd,end_data.request.cmd);
+                self.security_loss_data_writer.write_all(s.as_bytes()).expect("写入失败");
                 // let latency = (end_data.completed_time as u64 - start_data.start_time as u64);
-                let latency = end_data.completed_time.wrapping_sub(start_data.start_time);
+                // let latency = end_data.completed_time.wrapping_sub(start_data.start_time);
+                let latency = end_data.completed_time.checked_sub(start_data.start_time).unwrap_or(0);
+                // total.latency.checked_add(u64::MAX).unwrap_or(0);
+                total = total.checked_add(latency).unwrap_or(120);
                 if latency > 100000 {
                 } else {
+                    // println!("延迟为：{} ms",latency);
+                    
+                    // println!("延迟为：{}, 总延迟为：{}， count为：{}，当前平均延迟为：{}",latency,total,  count,total / count);
+                    println!("延迟为：{}, 当前平均延迟为：{}",latency,total / count);
+                    let s = format!("{},",latency);
+                    self.data_writer.write_all(s.as_bytes()).expect("写入失败"); // 按行写入文件中
+
+                    let s1 = format!("{}\n",latency);
+                    self.fluctuate_data_writer.write_all(s1.as_bytes()).expect("写入失败"); 
                     // let latency_result = LatencyResult {
                     //     request: start_data.request.clone(),
                     //     latency,
                     // };
                     let r = start_data.clone().request;
-                    self.insert_latency_result(&k.0, &r, latency);
+                    // self.insert_latency_result(&k.0, &r, latency);
                     // self.store_latency_result(k.0, latency_result);
                     self.l_end_data_computing.remove(k);
                 }
+                count += 1;
             }
+            
         });
+        println!("平均延迟为：{}",total / count);
+        let data = total / count;
+        let s = format!("|\n");
+        self.data_writer.write_all(s.clone().as_bytes()).expect("写入失败"); // 按行写入文件中
+        self.fluctuate_data_writer.write_all(s.clone().as_bytes()).expect("写入失败"); 
+        // let s = format!("Start:{},End:{}\n",start_data.request.cmd,end_data.request.cmd);
+        self.security_loss_data_writer.write_all(s.as_bytes()).expect("写入失败");
 
+        let delay_s = format!("Latency:{}\n",data);
+        self.performance_loss_data_writer.write_all(delay_s.as_bytes()).expect("写入失败");
         // The remaining data is rewritten to l_start_data and l_end_data
         self.l_start_data_computing.iter().for_each(|(k, v)| {
             self.l_start_data.insert(k.clone(), v.clone());
@@ -427,7 +498,7 @@ impl DataWarehouse {
                 let throughput = (count as f64
                     / (0.001 * (self.internal_round * self.throughput_internal) as f64))
                     as u64;
-                self.insert_scalability_throughput_result(item, index, &peer_id, throughput);
+                // self.insert_scalability_throughput_result(item, index, &peer_id, throughput);
                 // self.throughput_results.insert((index, peer_id), throughput);
             });
 
@@ -456,7 +527,7 @@ impl DataWarehouse {
                 // };
                 let r = start_data.clone().request;
                 println!("Start insert!");
-                self.insert_scalability_latency_result(item, &k.0, &r, latency);
+                // self.insert_scalability_latency_result(item, &k.0, &r, latency);
                 println!("ENd insert!");
                 // self.record_scalability_mid_latency(k.0, latency_result);
                 self.l_end_data_computing.remove(k);
@@ -638,269 +709,269 @@ impl DataWarehouse {
         self.internal_round = 0;
     }
 
-    pub fn mysql_conn(&mut self) -> PooledConn {
-        self.mysql_db.pool().get_conn().expect("Get Conn Error!")
-    }
+    // pub fn mysql_conn(&mut self) -> PooledConn {
+    //     self.mysql_db.pool().get_conn().expect("Get Conn Error!")
+    // }
 
-    pub fn create_result_tables(&mut self) {
-        self.drop_tables();
-        let mut conn = self.mysql_conn();
+    // pub fn create_result_tables(&mut self) {
+    //     self.drop_tables();
+    //     // let mut conn = self.mysql_conn();
 
-        conn.query_drop(
-            r"CREATE TABLE throughput_results (
-                id int auto_increment primary key,
-                round int not null,
-                peer_id text,
-                throughput int not null
-            )",
-        )
-        .expect("Create Table Error!");
+    //     conn.query_drop(
+    //         r"CREATE TABLE throughput_results (
+    //             id int auto_increment primary key,
+    //             round int not null,
+    //             peer_id text,
+    //             throughput int not null
+    //         )",
+    //     )
+    //     .expect("Create Table Error!");
 
-        conn.query_drop(
-            r"CREATE TABLE latency_results (
-                id int auto_increment primary key,
-                peer_id text not null,
-                request_cmd text,
-                latency int not null
-            )",
-        )
-        .expect("Create Table Error!");
+    //     conn.query_drop(
+    //         r"CREATE TABLE latency_results (
+    //             id int auto_increment primary key,
+    //             peer_id text not null,
+    //             request_cmd text,
+    //             latency int not null
+    //         )",
+    //     )
+    //     .expect("Create Table Error!");
 
-        conn.query_drop(
-            r"CREATE TABLE scalability_items (
-                id int auto_increment primary key,
-                item text
-            )",
-        )
-        .expect("Create Table Error!");
+    //     conn.query_drop(
+    //         r"CREATE TABLE scalability_items (
+    //             id int auto_increment primary key,
+    //             item text
+    //         )",
+    //     )
+    //     .expect("Create Table Error!");
 
-        conn.query_drop(
-            r"CREATE TABLE scalability_throughput_results (
-                id int auto_increment primary key,
-                item text,
-                round int not null,
-                peer_id text,
-                throughput int not null
-            )",
-        )
-        .expect("Create Table Error!");
+    //     conn.query_drop(
+    //         r"CREATE TABLE scalability_throughput_results (
+    //             id int auto_increment primary key,
+    //             item text,
+    //             round int not null,
+    //             peer_id text,
+    //             throughput int not null
+    //         )",
+    //     )
+    //     .expect("Create Table Error!");
 
-        conn.query_drop(
-            r"CREATE TABLE scalability_latency_results (
-                id int auto_increment primary key,
-                item text,
-                peer_id text not null,
-                request_cmd text,
-                latency int not null
-            )",
-        )
-        .expect("Create Table Error!");
-    }
+    //     conn.query_drop(
+    //         r"CREATE TABLE scalability_latency_results (
+    //             id int auto_increment primary key,
+    //             item text,
+    //             peer_id text not null,
+    //             request_cmd text,
+    //             latency int not null
+    //         )",
+    //     )
+    //     .expect("Create Table Error!");
+    // }
 
-    pub fn drop_tables(&mut self) {
-        let mut conn = self.mysql_conn();
+    // pub fn drop_tables(&mut self) {
+    //     // let mut conn = self.mysql_conn();
 
-        conn.exec_drop("DROP TABLE throughput_results", ()).ok();
-        conn.exec_drop("DROP TABLE latency_results", ()).ok();
-        conn.exec_drop("DROP TABLE scalability_items", ()).ok();
-        conn.exec_drop("DROP TABLE scalability_throughput_results", ())
-            .ok();
-        conn.exec_drop("DROP TABLE scalability_latency_results", ())
-            .ok();
-    }
+    //     conn.exec_drop("DROP TABLE throughput_results", ()).ok();
+    //     conn.exec_drop("DROP TABLE latency_results", ()).ok();
+    //     conn.exec_drop("DROP TABLE scalability_items", ()).ok();
+    //     conn.exec_drop("DROP TABLE scalability_throughput_results", ())
+    //         .ok();
+    //     conn.exec_drop("DROP TABLE scalability_latency_results", ())
+    //         .ok();
+    // }
 
-    pub fn insert_throughput_result(&mut self, round: u64, peer_id: &PeerId, throughput: u64) {
-        let mut conn = self.mysql_conn();
+    // pub fn insert_throughput_result(&mut self, round: u64, peer_id: &PeerId, throughput: u64) {
+    //     let mut conn = self.mysql_conn();
 
-        conn.exec_drop(
-            r"INSERT INTO throughput_results (round, peer_id, throughput) 
-            VALUES (:round, :peer_id, :throughput)",
-            params! {
-                round,
-                "peer_id" => peer_id.to_string(),
-                throughput,
-            },
-        )
-        .expect("Insert Throughput Result Error!");
-    }
+    //     conn.exec_drop(
+    //         r"INSERT INTO throughput_results (round, peer_id, throughput) 
+    //         VALUES (:round, :peer_id, :throughput)",
+    //         params! {
+    //             round,
+    //             "peer_id" => peer_id.to_string(),
+    //             throughput,
+    //         },
+    //     )
+    //     .expect("Insert Throughput Result Error!");
+    // }
 
-    pub fn query_throughput_results(&mut self, start: u64, count: u64) -> Vec<(u64, String, u64)> {
-        let mut conn = self.mysql_conn();
-        let sql = format!(
-            "SELECT round, peer_id, throughput FROM throughput_results LIMIT {},{}",
-            start, count
-        );
+    // pub fn query_throughput_results(&mut self, start: u64, count: u64) -> Vec<(u64, String, u64)> {
+    //     let mut conn = self.mysql_conn();
+    //     let sql = format!(
+    //         "SELECT round, peer_id, throughput FROM throughput_results LIMIT {},{}",
+    //         start, count
+    //     );
 
-        let results = conn
-            .query_map(sql, |(round, peer_id, throughput)| {
-                (round, peer_id, throughput)
-            })
-            .ok();
-        if let None = results {
-            return vec![];
-        }
+    //     let results = conn
+    //         .query_map(sql, |(round, peer_id, throughput)| {
+    //             (round, peer_id, throughput)
+    //         })
+    //         .ok();
+    //     if let None = results {
+    //         return vec![];
+    //     }
 
-        results.unwrap()
-    }
+    //     results.unwrap()
+    // }
 
-    pub fn insert_latency_result(&mut self, peer_id: &PeerId, request: &Request, latency: u64) {
-        let mut conn = self.mysql_conn();
+    // pub fn insert_latency_result(&mut self, peer_id: &PeerId, request: &Request, latency: u64) {
+    //     let mut conn = self.mysql_conn();
 
-        conn.exec_drop(
-            r"INSERT INTO latency_results (peer_id, request_cmd,  latency) 
-            VALUES (:peer_id, :request_cmd,  :latency)",
-            params! {
-                "peer_id" => peer_id.to_string(),
-                "request_cmd" => request.cmd.clone(),
-                // "request_timestamp" => request.timestamp,
-                latency,
-            },
-        )
-        .expect("Insert Latency Result Error!");
-    }
+    //     conn.exec_drop(
+    //         r"INSERT INTO latency_results (peer_id, request_cmd,  latency) 
+    //         VALUES (:peer_id, :request_cmd,  :latency)",
+    //         params! {
+    //             "peer_id" => peer_id.to_string(),
+    //             "request_cmd" => request.cmd.clone(),
+    //             // "request_timestamp" => request.timestamp,
+    //             latency,
+    //         },
+    //     )
+    //     .expect("Insert Latency Result Error!");
+    // }
 
-    pub fn query_latency_results(&mut self, start: u64, count: u64) -> Vec<(String, Request, u64)> {
-        let mut conn = self.mysql_conn();
-        let sql = format!(
-            "SELECT peer_id, request_cmd, latency FROM latency_results LIMIT {},{}",
-            start, count
-        );
+    // pub fn query_latency_results(&mut self, start: u64, count: u64) -> Vec<(String, Request, u64)> {
+    //     let mut conn = self.mysql_conn();
+    //     let sql = format!(
+    //         "SELECT peer_id, request_cmd, latency FROM latency_results LIMIT {},{}",
+    //         start, count
+    //     );
 
-        let results = conn
-            .query_map(sql, |(peer_id, request_cmd, latency)| {
-                let r = Request {
-                    cmd: request_cmd,
-                    // timestamp: request_timestamp,
-                };
-                (peer_id, r, latency)
-            })
-            .ok();
-        if let None = results {
-            return vec![];
-        }
+    //     let results = conn
+    //         .query_map(sql, |(peer_id, request_cmd, latency)| {
+    //             let r = Request {
+    //                 cmd: request_cmd,
+    //                 // timestamp: request_timestamp,
+    //             };
+    //             (peer_id, r, latency)
+    //         })
+    //         .ok();
+    //     if let None = results {
+    //         return vec![];
+    //     }
 
-        results.unwrap()
-    }
+    //     results.unwrap()
+    // }
 
-    pub fn insert_scalability_item(&mut self, item: &TestItem) {
-        let mut conn = self.mysql_conn();
+    // pub fn insert_scalability_item(&mut self, item: &TestItem) {
+    //     let mut conn = self.mysql_conn();
 
-        conn.exec_drop(
-            r"INSERT INTO scalability_items (item) 
-            VALUES (:item)",
-            params! {
-                "item" => item.to_string(),
-            },
-        )
-        .expect("Insert Scalability Item Error!");
-    }
+    //     conn.exec_drop(
+    //         r"INSERT INTO scalability_items (item) 
+    //         VALUES (:item)",
+    //         params! {
+    //             "item" => item.to_string(),
+    //         },
+    //     )
+    //     .expect("Insert Scalability Item Error!");
+    // }
 
-    pub fn query_scalability_items(&mut self) -> Vec<String> {
-        let mut conn = self.mysql_conn();
-        let sql = format!("SELECT item FROM scalability_items");
+    // pub fn query_scalability_items(&mut self) -> Vec<String> {
+    //     let mut conn = self.mysql_conn();
+    //     let sql = format!("SELECT item FROM scalability_items");
 
-        let results = conn.query_map(sql, |item| item).ok();
+    //     let results = conn.query_map(sql, |item| item).ok();
 
-        if let None = results {
-            return vec![];
-        }
+    //     if let None = results {
+    //         return vec![];
+    //     }
 
-        results.unwrap()
-    }
+    //     results.unwrap()
+    // }
 
-    pub fn insert_scalability_throughput_result(
-        &mut self,
-        item: &TestItem,
-        round: u64,
-        peer_id: &PeerId,
-        throughput: u64,
-    ) {
-        let mut conn = self.mysql_conn();
+    // pub fn insert_scalability_throughput_result(
+    //     &mut self,
+    //     item: &TestItem,
+    //     round: u64,
+    //     peer_id: &PeerId,
+    //     throughput: u64,
+    // ) {
+    //     let mut conn = self.mysql_conn();
 
-        conn.exec_drop(
-            r"INSERT INTO scalability_throughput_results (item, round, peer_id, throughput) 
-            VALUES (:item, :round, :peer_id, :throughput)",
-            params! {
-                "item" => item.to_string(),
-                round,
-                "peer_id" => peer_id.to_string(),
-                throughput,
-            },
-        )
-        .expect("Insert Scalability Throughput Result Error!");
-    }
+    //     conn.exec_drop(
+    //         r"INSERT INTO scalability_throughput_results (item, round, peer_id, throughput) 
+    //         VALUES (:item, :round, :peer_id, :throughput)",
+    //         params! {
+    //             "item" => item.to_string(),
+    //             round,
+    //             "peer_id" => peer_id.to_string(),
+    //             throughput,
+    //         },
+    //     )
+    //     .expect("Insert Scalability Throughput Result Error!");
+    // }
 
-    pub fn query_scalability_throughput_results(
-        &mut self,
-        item: &str,
-        start: u64,
-        count: u64,
-    ) -> Vec<(u64, String, u64)> {
-        let mut conn = self.mysql_conn();
-        let sql = format!(
-            "SELECT round, peer_id, throughput FROM scalability_throughput_results WHERE item = '{}' LIMIT {},{}",
-            item.to_string(), start, count
-        );
+    // pub fn query_scalability_throughput_results(
+    //     &mut self,
+    //     item: &str,
+    //     start: u64,
+    //     count: u64,
+    // ) -> Vec<(u64, String, u64)> {
+    //     let mut conn = self.mysql_conn();
+    //     let sql = format!(
+    //         "SELECT round, peer_id, throughput FROM scalability_throughput_results WHERE item = '{}' LIMIT {},{}",
+    //         item.to_string(), start, count
+    //     );
 
-        let results = conn
-            .query_map(sql, |(round, peer_id, throughput)| {
-                (round, peer_id, throughput)
-            })
-            .ok();
-        if let None = results {
-            return vec![];
-        }
+    //     let results = conn
+    //         .query_map(sql, |(round, peer_id, throughput)| {
+    //             (round, peer_id, throughput)
+    //         })
+    //         .ok();
+    //     if let None = results {
+    //         return vec![];
+    //     }
 
-        results.unwrap()
-    }
+    //     results.unwrap()
+    // }
 
-    pub fn insert_scalability_latency_result(
-        &mut self,
-        item: &TestItem,
-        peer_id: &PeerId,
-        request: &Request,
-        latency: u64,
-    ) {
-        let mut conn = self.mysql_conn();
+    // pub fn insert_scalability_latency_result(
+    //     &mut self,
+    //     item: &TestItem,
+    //     peer_id: &PeerId,
+    //     request: &Request,
+    //     latency: u64,
+    // ) {
+    //     let mut conn = self.mysql_conn();
 
-        conn.exec_drop(
-            r"INSERT INTO scalability_latency_results (item, peer_id, request_cmd, latency) 
-            VALUES (:item, :peer_id, :request_cmd, :latency)",
-            params! {
-                "item" => item.to_string(),
-                "peer_id" => peer_id.to_string(),
-                "request_cmd" => request.cmd.clone(),
-                // "request_timestamp" => request.timestamp,
-                latency,
-            },
-        )
-        .expect("Insert Scalability Latency Result Error!");
-    }
+    //     conn.exec_drop(
+    //         r"INSERT INTO scalability_latency_results (item, peer_id, request_cmd, latency) 
+    //         VALUES (:item, :peer_id, :request_cmd, :latency)",
+    //         params! {
+    //             "item" => item.to_string(),
+    //             "peer_id" => peer_id.to_string(),
+    //             "request_cmd" => request.cmd.clone(),
+    //             // "request_timestamp" => request.timestamp,
+    //             latency,
+    //         },
+    //     )
+    //     .expect("Insert Scalability Latency Result Error!");
+    // }
 
-    pub fn query_scalability_latency_results(
-        &mut self,
-        item: &str,
-        start: u64,
-        count: u64,
-    ) -> Vec<(String, Request, u64)> {
-        let mut conn = self.mysql_conn();
-        let sql = format!("SELECT peer_id, request_cmd, latency FROM scalability_latency_results WHERE item = '{}' LIMIT {},{}", item.to_string(), start, count);
+    // pub fn query_scalability_latency_results(
+    //     &mut self,
+    //     item: &str,
+    //     start: u64,
+    //     count: u64,
+    // ) -> Vec<(String, Request, u64)> {
+    //     let mut conn = self.mysql_conn();
+    //     let sql = format!("SELECT peer_id, request_cmd, latency FROM scalability_latency_results WHERE item = '{}' LIMIT {},{}", item.to_string(), start, count);
 
-        let results = conn
-            .query_map(sql, |(peer_id, request_cmd, latency)| {
-                let r = Request {
-                    cmd: request_cmd,
-                    // timestamp: request_timestamp,
-                };
-                (peer_id, r, latency)
-            })
-            .ok();
-        if let None = results {
-            return vec![];
-        }
+    //     let results = conn
+    //         .query_map(sql, |(peer_id, request_cmd, latency)| {
+    //             let r = Request {
+    //                 cmd: request_cmd,
+    //                 // timestamp: request_timestamp,
+    //             };
+    //             (peer_id, r, latency)
+    //         })
+    //         .ok();
+    //     if let None = results {
+    //         return vec![];
+    //     }
 
-        results.unwrap()
-    }
+    //     results.unwrap()
+    // }
 }
 
 #[cfg(test)]

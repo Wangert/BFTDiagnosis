@@ -60,7 +60,9 @@ pub enum InteractiveMessage {
 
     ConsensusNodeMode(ConsensusNodeMode),
     ConsensusNodeModeSuccess(ConsensusNodeMode),
-
+    
+    ConfigureParams(Param),
+    
     ProtocolStart(u64),
     Reset(u64),
     ResetSuccess(ConsensusNodeMode),
@@ -69,12 +71,52 @@ pub enum InteractiveMessage {
     MakeAConsensusRequest(Request),
     // Make a set of consensus requests
     MakeConsensusRequests(Vec<Request>),
+    InitialLeader(Vec<u8>)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Message {
     pub interactive_message: InteractiveMessage,
     pub source: Vec<u8>,
+}
+
+//Parms
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+pub enum Param {
+    ConsensusParam(ConsensusParam),
+    DeployParam(DeployParam),
+    ConsensusAndDeployParam(ConsensusParam,DeployParam),
+    NoParam(),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+pub struct ConsensusParam {
+    batch_size: u16,
+}
+
+impl ConsensusParam {
+    pub fn new(size: u16) -> ConsensusParam {
+        ConsensusParam { batch_size: size }
+    }
+
+    pub fn batch_size(&self) -> u16 {
+        self.batch_size
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+pub struct DeployParam {
+    delay: u16
+}
+
+impl DeployParam {
+    pub fn new(delay: u16) -> DeployParam {
+        DeployParam { delay: delay }
+    }
+
+    pub fn delay(&self) -> u16 {
+        self.delay
+    }
 }
 
 // Protocol test item type
@@ -128,7 +170,10 @@ pub enum MaliciousBehaviour {
     LeaderSendAmbiguousMessage(Round, u8, Vec<String>, u16),
     LeaderDelaySendMessage(Round, u8),
     LeaderSendDuplicateMessage(Round, u8),
-
+    ReplicaFeignDeath(Round, u8, u16),
+    ReplicaSendAmbiguousMessage(Round, u8, Vec<String>, u16, u16),
+    ReplicaDelaySendMessage(Round, u8, u16),
+    ReplicaSendDuplicateMessage(Round, u8, u16),
     ReplicaNodeConspireForgeMessages(Round, u8, Vec<String>, u16),
 }
 
@@ -140,6 +185,10 @@ impl Display for MaliciousBehaviour {
             MaliciousBehaviour::LeaderDelaySendMessage(round, n_1) => write!(f, "LeaderDelaySendMessage({}, {})", round.to_string(), n_1),
             MaliciousBehaviour::LeaderSendDuplicateMessage(round, n_1) => write!(f, "LeaderSendDuplicateMessage({}, {})", round.to_string(), n_1),
             MaliciousBehaviour::ReplicaNodeConspireForgeMessages(round, n_1, field, n_2) => write!(f, "ReplicaNodeConspireForgeMessages({}, {}, {:?}, {})", round.to_string(), n_1, field, n_2),
+            MaliciousBehaviour::ReplicaFeignDeath(round, n, num) => write!(f, "ReplicaFeignDeath({}, {}, {})", round.to_string(), n, num),
+            MaliciousBehaviour::ReplicaSendAmbiguousMessage(round, n_1, field, n_2, num) => write!(f, "ReplicaSendAmbiguousMessage({}, {}, {:?}, {}, {})", round.to_string(), n_1, field, n_2, num),
+            MaliciousBehaviour::ReplicaDelaySendMessage(round, n_1, num) => write!(f, "ReplicaDelaySendMessage({}, {}, {})", round.to_string(), n_1, num),
+            MaliciousBehaviour::ReplicaSendDuplicateMessage(round, n_1, num) => write!(f, "ReplicaSendDuplicateMessage({}, {},{})", round.to_string(), n_1, num),
         }
     }
 }
@@ -152,6 +201,10 @@ impl From<MaliciousBehaviour> for String {
             MaliciousBehaviour::LeaderDelaySendMessage(round, n_1) => format!("LeaderDelaySendMessage({}, {})", round.to_string(), n_1).into(),
             MaliciousBehaviour::LeaderSendDuplicateMessage(round, n_1) => format!("LeaderSendDuplicateMessage({}, {})", round.to_string(), n_1).into(),
             MaliciousBehaviour::ReplicaNodeConspireForgeMessages(round, n_1, field, n_2) => format!("ReplicaNodeConspireForgeMessages({}, {}, {:?}, {})", round.to_string(), n_1, field, n_2).into(),
+            MaliciousBehaviour::ReplicaFeignDeath(round, n, num) => format!("ReplicaFeignDeath({}, {}, {})", round.to_string(), n, num).into(),
+            MaliciousBehaviour::ReplicaSendAmbiguousMessage(round, n_1, field, n_2, num) => format!("LeaderSendAmbiguousMessage({}, {}, {:?}, {}, {})", round.to_string(), n_1, field, n_2, num).into(),
+            MaliciousBehaviour::ReplicaDelaySendMessage(round, n_1, num) => format!("ReplicaDelaySendMessage({}, {}, {})", round.to_string(), n_1, num).into(),
+            MaliciousBehaviour::ReplicaSendDuplicateMessage(round, n_1, num) => format!("ReplicaSendDuplicateMessage({}, {}, {})", round.to_string(), n_1, num).into(),
         }
     }
 }

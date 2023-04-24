@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, sync::Arc, time::Duration};
+use std::{collections::HashMap, error::Error, sync::Arc, time::Duration, fs::File};
 
 use cli::cmd::rootcmd::CMD;
 use libp2p::{
@@ -8,11 +8,14 @@ use libp2p::{
     swarm::SwarmEvent,
     PeerId,
 };
+use std::io::prelude::*;
+
 use network::{
-    p2p_protocols::{base_behaviour::OutEvent, unicast::behaviour::UnicastEvent},
+    p2p_protocols::{base_behaviour::OutEvent, unicast::behaviour::UnicastEvent, floodsub::{behaviour::FloodsubEvent, topic::Topic, protocol::FloodsubData}},
     peer::Peer,
 };
 
+use log::info;
 
 use tokio::{
     sync::mpsc::{self, Receiver, Sender},
@@ -28,6 +31,10 @@ use crate::message::{
 use clap::{ArgMatches, Command as clap_Command};
 
 use super::data_warehouse::DataWarehouse;
+
+pub struct Evaluation {
+    
+}
 
 // The analyzer is responsible for the data acquisition and analysis of the protocol operation
 pub struct Analyzer {
@@ -58,6 +65,7 @@ pub struct Analyzer {
     // client parameter channel,
     args_sender: Sender<Vec<String>>,
     args_recevier: Receiver<Vec<String>>,
+    writer: File,
 }
 
 impl Analyzer {
@@ -70,7 +78,8 @@ impl Analyzer {
     ) -> Self {
         // let db_path = format!("./storage/data/{}_public_keys", port);
         let (args_sender, args_recevier) = mpsc::channel::<Vec<String>>(10);
-
+        let mut writer = std::fs::File::create("./log.txt").unwrap();
+        // log4rs::init_file("log4rs.yaml", Default::default()).unwrap();
         // let matches = ANALYZER_CMD.clone().get_matches();
         Self {
             id: peer.id,
@@ -90,12 +99,13 @@ impl Analyzer {
             // client: Client::new(matches),
             args_sender,
             args_recevier,
+            writer,
         }
     }
 
     // Analyzer network startup, including peer start, gossip topic subscription, message handler
     pub async fn peer_start(&mut self) -> Result<(), Box<dyn Error>> {
-        self.data_warehouse_mut().create_result_tables();
+        // self.data_warehouse_mut().create_result_tables();
         self.peer_mut().swarm_start(false).await?;
 
         // let arg_sender = self.args_sender.clone();
@@ -108,6 +118,19 @@ impl Analyzer {
 
     // subscribe gossip topics
     pub fn subscribe_topics(&mut self) {
+    //     let floodsub_topic = Topic::new("Initialization");
+    //     self.peer_mut()
+    //         .network_swarm_mut()
+    //         .behaviour_mut()
+    //         .floodsub
+    //         .subscribe(floodsub_topic);
+    //     let peer = self.id;
+    //     self.peer_mut()
+    //         .network_swarm_mut()
+    //         .behaviour_mut()
+    //         .floodsub
+    //         .add_node_to_partial_view(peer.clone());
+
         let topic = IdentTopic::new("Initialization");
         if let Err(e) = self
             .peer_mut()
@@ -197,16 +220,16 @@ impl Analyzer {
             let start = Instant::now();
             let mut intv = interval_at(start, internal);
 
-            loop {
-                tokio::select! {
-                    _ = intv.tick() => {
-                        internal_notify.notify_one();
-                    }
-                    _ = timer_stop.notified() => {
-                        break;
-                    }
-                }
-            }
+            // loop {
+            //     tokio::select! {
+            //         _ = intv.tick() => {
+            //             internal_notify.notify_one();
+            //         }
+            //         _ = timer_stop.notified() => {
+            //             break;
+            //         }
+            //     }
+            // }
         });
 
         tokio::spawn(async move {
@@ -261,14 +284,7 @@ impl Analyzer {
         };
 
         let serialized_message = coder::serialize_into_bytes(&message);
-        // let connected_nodes = self.connected_nodes.clone();
-        // connected_nodes.iter().for_each(|(_, v)| {
-        //     self.peer_mut()
-        //         .network_swarm_mut()
-        //         .behaviour_mut()
-        //         .unicast
-        //         .send_message(v, serialized_message.clone());
-        // });
+        
 
         let topic = IdentTopic::new("Initialization");
         if let Err(e) = self
@@ -280,6 +296,14 @@ impl Analyzer {
         {
             eprintln!("Publish message error:{:?}", e);
         }
+
+        // let floodsub_topic = Topic::new("Initialization");
+        // self
+        //     .peer_mut()
+        //     .network_swarm_mut()
+        //     .behaviour_mut()
+        //     .floodsub
+        //     .publish(floodsub_topic, serialized_message);
     }
 
     // When a test start command is received from the controller,
@@ -305,8 +329,43 @@ impl Analyzer {
                     data_warehouse.test_crash(*count);
                 }
                 TestItem::Malicious(m) => {
-                    data_warehouse.test_malicious(&test_item);
-                    println!("MaliciousBehaviour Test: {:?}", m);
+                    // data_warehouse.test_malicious(&test_item);
+                    
+                    match m {
+                        crate::message::MaliciousBehaviour::LeaderFeignDeath(round, max_phase) => {
+                            println!("开始计算{}阶段的恶意行为的耗时,总阶段数为{}",&round,max_phase);
+                        },
+                        crate::message::MaliciousBehaviour::LeaderSendAmbiguousMessage(round, max_phase, s, u) => {
+                            
+                        },
+                        crate::message::MaliciousBehaviour::LeaderDelaySendMessage(_, _) => {
+
+                        },
+                        crate::message::MaliciousBehaviour::LeaderSendDuplicateMessage(_, _) => {
+
+                        },
+                        crate::message::MaliciousBehaviour::ReplicaNodeConspireForgeMessages(_, _, _, _) => {
+                            
+                        },
+                        crate::message::MaliciousBehaviour::ReplicaFeignDeath(_, _, _) => {
+
+                        },
+                        crate::message::MaliciousBehaviour::ReplicaSendAmbiguousMessage(_, _, _, _, _) => {
+
+                        },
+                        crate::message::MaliciousBehaviour::ReplicaDelaySendMessage(_, _, _) => {
+
+                        },
+                        crate::message::MaliciousBehaviour::ReplicaSendDuplicateMessage(_, _, _) => {
+                            
+                        },
+                    }
+                    println!("恶意行为情况下的的性能测试结果(延迟)：");
+                    data_warehouse.compute_latency();
+                    println!("恶意行为情况下的性能测试结果(吞吐量)：");
+                    data_warehouse.compute_throughput_l();
+                    // println!("MaliciousBehaviour Test: {:?}", m);
+                    
                 }
             }
         } else {
@@ -344,12 +403,15 @@ impl Analyzer {
             }
             InteractiveMessage::ComponentInfo(Component::Analyzer(_id_bytes)) => {}
             InteractiveMessage::TestItem(item) => {
+                let dt = chrono::Local::now();
+                let timestamp: i64 = dt.timestamp_millis();
+                println!("收到Test时间：{}",timestamp);
                 println!("#############################################");
                 println!("Configure test item: {:?}", &item);
                 self.set_test_item(item.clone());
                 match item {
                     TestItem::Scalability(_, _, _) => {
-                        self.data_warehouse_mut().insert_scalability_item(&item)
+                        // self.data_warehouse_mut().insert_scalability_item(&item)
                     }
                     _ => {}
                 }
@@ -377,12 +439,18 @@ impl Analyzer {
                             self.crash_test_timer_start().await;
                         }
                         TestItem::Malicious(_) => {
-                            self.malicious_test_timer_start().await;
+                            // self.malicious_test_timer_start().await;
+                            self.performance_test_timer_start().await;
                         }
                     }
                     // self.compute_and_analyse();
                 }
             }
+            // InteractiveMessage::ProtocolStart(_) => {
+            //     let dt = chrono::Local::now();
+            //     let timestamp: i64 = dt.timestamp_millis();
+            //     println!("收到Protocol时间：{}",timestamp);
+            // }
             _ => {}
         };
     }
@@ -393,22 +461,51 @@ impl Analyzer {
         origin_peer_id: &PeerId,
         message: ConsensusDataMessage,
     ) {
+         // 创建文件
+        // let file = std::fs::File::open("./log.txt").unwrap(); // 打开文件
+        // let buffered: std::io::BufReader<std::fs::File> = std::io::BufReader::new(file); // 创建文件缓冲区
+        // for line in buffered.lines() {
+        //     match line {
+        //         Ok(mut value) => {
+        //             println!("{:?}", value);
+        //             value = value + "\n";
+        //             writer.write_all(value.as_bytes()).expect("写入失败"); // 按行写入文件中
+        //         }
+        //         Err(err) => println!("{:?}", err),
+        //     }
+        // }
         match message.data {
-            ConsensusData::ConsensusStartData(data) => {
+                   ConsensusData::ConsensusStartData(data) => {
+                // println!(
+                //     "【ConsensusStartData(from {:?})】: {:?}",
+                //     origin_peer_id.to_string(),
+                //     &data
+                // );
                 println!(
-                    "【ConsensusStartData(from {:?})】: {:?}",
-                    origin_peer_id.to_string(),
+                    "{:?}",
                     &data
                 );
+                
+                let s = format!("{} {}\n","Start：".to_string() ,&data.request.cmd);
+                self.writer.write_all(s.as_bytes()).expect("写入失败"); // 按行写入文件中
+                // info!("{:?}",&data);
                 self.data_warehouse
                     .store_consensus_start_data(*origin_peer_id, data);
             }
             ConsensusData::ConsensusEndData(data) => {
+                // println!(
+                //     "【ConsensusEndData(from {:?})】: {:?}",
+                //     origin_peer_id.to_string(),
+                //     &data
+                // );
                 println!(
-                    "【ConsensusEndData(from {:?})】: {:?}",
-                    origin_peer_id.to_string(),
+                    "{:?}",
                     &data
                 );
+                // info!("{:?}",&data);
+                let s = format!("{},{}\n","End: ".to_string() ,&data.request.cmd);
+                self.writer.write_all(s.as_bytes()).expect("写入失败"); // 按行写入文件中
+
                 self.data_warehouse
                     .store_consensus_end_data(*origin_peer_id, data);
             }
@@ -437,21 +534,21 @@ impl Analyzer {
         }
 
         if let Some(_) = matches.subcommand_matches("printThroughputResults") {
-            self.data_warehouse_mut().print_throughput_results();
+            // self.data_warehouse_mut().print_throughput_results();
         }
 
         if let Some(_) = matches.subcommand_matches("printLatencyResults") {
-            self.data_warehouse_mut().print_latency_results();
+            // self.data_warehouse_mut().print_latency_results();
         }
 
         if let Some(_) = matches.subcommand_matches("printScalabilityThroughputResults") {
-            self.data_warehouse_mut()
-                .print_scalability_throughput_results();
+            // self.data_warehouse_mut();
+                // .print_scalability_throughput_results();
         }
 
         if let Some(_) = matches.subcommand_matches("printScalabilityLatencyResults") {
-            self.data_warehouse_mut()
-                .print_scalability_latency_results();
+            // self.data_warehouse_mut();
+                // .print_scalability_latency_results();
         }
 
         if let Some(_) = matches.subcommand_matches("printCrashResults") {
@@ -516,11 +613,33 @@ impl Analyzer {
                         };
 
                     }
+                    SwarmEvent::Behaviour(OutEvent::Floodsub(
+                        FloodsubEvent::Message(message)
+                    )) => {
+                        // println!(
+                        //     "Received: '{:?}' from {:?}",
+                        //     message.data,
+                        //     message.source
+                        // );
+                        let message: Message = coder::deserialize_for_bytes(&message.data);
+                        match message.interactive_message {
+                            InteractiveMessage::ComponentInfo(Component::Controller(id_bytes)) => {
+                                let controller_id = PeerId::from_bytes(&id_bytes[..]).unwrap();
+                                println!("\nController is: {:?}", &controller_id);
+                                self.add_controller(controller_id);
+                            },
+                            InteractiveMessage::ComponentInfo(Component::Analyzer(_id_bytes)) => {
+
+                            },
+                            _ => {}
+                        };
+                    }
                     SwarmEvent::Behaviour(OutEvent::Mdns(MdnsEvent::Discovered(list))) => {
                         // let swarm = self.peer_mut().network_swarm_mut();
                         for (peer, _) in list {
                             println!("Discovered {:?}", &peer);
                             self.peer_mut().network_swarm_mut().behaviour_mut().unicast.add_node_to_partial_view(&peer);
+                            self.peer_mut().network_swarm_mut().behaviour_mut().floodsub.add_node_to_partial_view(peer.clone());
                             self.peer_mut().network_swarm_mut().behaviour_mut().gossipsub.add_explicit_peer(&peer);
                             self.connected_nodes.insert(peer.to_string(), peer.clone());
                         }
@@ -530,6 +649,7 @@ impl Analyzer {
                         for (peer, _) in list {
                             if !swarm.behaviour_mut().mdns.has_node(&peer) {
                                 swarm.behaviour_mut().unicast.remove_node_from_partial_view(&peer);
+                                swarm.behaviour_mut().floodsub.remove_node_from_partial_view(&peer);
                                 swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer);
                                 // self.connected_nodes.remove(&peer.to_string());
                             }

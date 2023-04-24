@@ -1,21 +1,17 @@
+use crate::basic_hotstuff::message::{
+    Block, Commit, ConsensusMessage, ConsensusNodePKInfo, Decide, MessageType, NewView, PreCommit,
+    Prepare, QC,
+};
+use crate::basic_hotstuff::{
+    common::{generate_bls_keys, get_message_hash, COMMIT, PREPARE, PRE_COMMIT},
+    log::Log,
+    message::Vote,
+    state::State,
+};
+use blsttc::SignatureShare;
 use components::behaviour::{PhaseState, ProtocolBehaviour, SendType};
-use components::message::{Request, ConsensusData, ConsensusDataMessage};
 use components::common::get_request_hash;
-use crate::{
-    // behaviour::ProtocolMessage::ProtocolDefault,
-    basic_hotstuff::{
-        common::{generate_bls_keys, get_message_hash, COMMIT, PREPARE, PRE_COMMIT},
-        message::Vote,
-        state::State,
-        log::Log,
-    },
-};
-use crate::{
-    basic_hotstuff::message::{
-        Block, Commit, ConsensusMessage, ConsensusNodePKInfo, Decide, MessageType, NewView,
-        PreCommit, Prepare, QC,
-    },
-};
+use components::message::{ConsensusData, ConsensusDataMessage, Request};
 use libp2p::{gossipsub::IdentTopic, PeerId};
 use network::peer::Peer;
 use std::thread::sleep;
@@ -28,7 +24,6 @@ use std::{
     time::Duration,
 };
 use std::{thread, time};
-use blsttc::SignatureShare;
 use tokio::{
     sync::{Mutex, Notify},
     time::Sleep,
@@ -84,6 +79,12 @@ impl BasicHotstuffProtocol {
                 println!("View({}) is timeout!", view_num);
             }
         });
+    }
+
+    pub fn view_timeout_stop(&mut self) {
+        println!("timeout stop");
+        self.state.current_view_timeout = self.state.tf;
+        self.view_timeout_stop_notify.notify_one();
     }
 
     pub fn distribute_keys(&mut self, current_peer_id: PeerId) -> PhaseState {
@@ -147,14 +148,12 @@ impl BasicHotstuffProtocol {
         let sys_time2 = SystemTime::now();
 
         let difference = sys_time2.duration_since(sys_time1);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-        println!("Distribute key time spent: {:?}", difference);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("Distribute key time spent: {:?}", difference);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
         return PhaseState::ContinueExecute(send_queue);
     }
-
-
 
     // storage TBLS keypair
     pub fn storage_tbls_key(&mut self, current_peer_id: PeerId, tbls_key: &TBLSKey) {
@@ -230,19 +229,23 @@ impl BasicHotstuffProtocol {
         self.state.view = next_view;
 
         let peer = PeerId::from_bytes(&self.state.primary).unwrap();
-        println!("Current leader: {}", peer.to_string());
-        println!("The final send:{:?}", send_queue.clone());
+        // println!("Current leader: {}", peer.to_string());
+        // println!("The final send:{:?}", send_queue.clone());
         // start new view timing
         self.view_timeout_start(next_view);
 
         let sys_time2 = SystemTime::now();
 
         let difference = sys_time2.duration_since(sys_time1);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-        println!("Newview time spent: {:?}", difference);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-
-        return PhaseState::ContinueExecute(send_queue);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("Newview time spent: {:?}", difference);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        if self.state.timeout_flag {
+            self.state.timeout_flag = false;
+            return PhaseState::OverMessage(Some(self.state.current_request.clone()), send_queue);
+        } else {
+            return PhaseState::ContinueExecute(send_queue);
+        }
     }
 
     pub fn safe_node(&self, block: &Block, qc: &QC) -> bool {
@@ -260,15 +263,21 @@ impl BasicHotstuffProtocol {
         self.log.record_newview(newview.view_num, newview);
 
         let count = self.log.get_newviews_count_by_view(newview.view_num);
-        let threshold = 2 * self.state.fault_tolerance_count + 1;
+        let threshold = 2 * self.state.fault_tolerance_count;
         // 2f+1 newview, calculate highQC
         if count == threshold as usize {
             println!("ready.");
             // self.new_round = true;
-            let high_qc = self.log.get_high_qc_by_view(newview.view_num, self.state.prepare_qc.clone());
+            let high_qc = self
+                .log
+                .get_high_qc_by_view(newview.view_num, self.state.prepare_qc.clone());
             self.state.high_qc = high_qc;
-
-            return PhaseState::Over(None);
+            if self.state.timeout_flag {
+                self.state.timeout_flag = false;
+                return PhaseState::Over(Some(self.state.current_request.clone()));
+            } else {
+                return PhaseState::Over(None);
+            }
         }
         return PhaseState::ContinueExecute(send_queue);
     }
@@ -307,9 +316,9 @@ impl BasicHotstuffProtocol {
         let sys_time2 = SystemTime::now();
 
         let difference = sys_time2.duration_since(sys_time1);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-        println!("Handle Request spent: {:?}", difference);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("Handle Request spent: {:?}", difference);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
         PhaseState::ContinueExecute(send_query)
     }
@@ -320,11 +329,15 @@ impl BasicHotstuffProtocol {
         let mut send_query = VecDeque::new();
         println!("*********************** Get the Prepare Message ***************************");
 
+        let request = Request {
+            cmd: prepare.clone().block.cmd,
+        };
+        self.state.current_request = request;
         // verify prepare signature
         let qc = prepare.justify.clone();
         if let None = qc {
             if prepare.block.parent_hash != "" {
-                eprintln!("Current block does not extend from justify block.");
+                // eprintln!("Current block does not extend from justify block.");
                 return PhaseState::ContinueExecute(send_query);
             }
         }
@@ -332,21 +345,21 @@ impl BasicHotstuffProtocol {
         if let Some(ref qc) = qc {
             let qc_block_hash = get_block_hash(&qc.block);
             if qc_block_hash.ne(&prepare.block.parent_hash) {
-                eprintln!("Current block does not extend from justify block.");
+                // eprintln!("Current block does not extend from justify block.");
                 return PhaseState::ContinueExecute(send_query);
             }
 
             if !self.safe_node(&prepare.block, qc) {
-                eprintln!("Safenode authentication failed");
+                // eprintln!("Safenode authentication failed");
                 return PhaseState::ContinueExecute(send_query);
             }
         }
 
         let sys_time2 = SystemTime::now();
         let difference1 = sys_time2.duration_since(sys_time1);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-        println!("Prepare verify time spent: {:?}", difference1);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("Prepare verify time spent: {:?}", difference1);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
         self.state.primary = prepare.from_peer_id.clone();
 
@@ -356,9 +369,9 @@ impl BasicHotstuffProtocol {
             let partial_signature = keypair.sign(sign_msg_hash.as_bytes());
             let sys_time3 = SystemTime::now();
             let difference2 = sys_time3.duration_since(sys_time2);
-            println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-            println!("Prepare sigh time spent: {:?}", difference2);
-            println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+            // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+            // println!("Prepare sigh time spent: {:?}", difference2);
+            // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
             let vote = Vote {
                 view_num: prepare.view_num,
@@ -373,7 +386,10 @@ impl BasicHotstuffProtocol {
 
             let serialized_vote_msg = coder::serialize_into_json_bytes(&vote_msg);
             let leader_id = PeerId::from_bytes(&self.state.primary).expect("Leader peer id error.");
-
+            // match PeerId::from_bytes(&self.state.primary) {
+            //     Ok(a) => todo!(),
+            //     Err(_) => todo!(),
+            // }
             send_query.push_back(SendType::Unicast((leader_id), (serialized_vote_msg)));
             println!(
                 "*********************** Send PrepareVote message ****************************"
@@ -382,9 +398,9 @@ impl BasicHotstuffProtocol {
             let sys_time4 = SystemTime::now();
 
             let difference = sys_time4.duration_since(sys_time3);
-            println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-            println!("Handle prepare time spent: {:?}", difference);
-            println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+            // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+            // println!("Handle prepare time spent: {:?}", difference);
+            // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
             return PhaseState::ContinueExecute(send_query);
         } else {
@@ -405,7 +421,7 @@ impl BasicHotstuffProtocol {
             &vote.partial_signature.clone().unwrap(),
             prepare_msg_hash.as_bytes(),
         ) {
-            eprintln!("Partial signature is invalid!");
+            // eprintln!("Partial signature is invalid!");
             return PhaseState::ContinueExecute(send_query);
         }
         let sys_time2 = SystemTime::now();
@@ -416,22 +432,25 @@ impl BasicHotstuffProtocol {
             &vote.partial_signature.clone().unwrap(),
         );
 
-        let partial_sig_count =
-            self.log.get_partial_signatures_count_by_message_hash(&prepare_msg_hash);
-        let threshold = 2 * self.state.fault_tolerance_count + 1;
-        
+        let partial_sig_count = self
+            .log
+            .get_partial_signatures_count_by_message_hash(&prepare_msg_hash);
+        let threshold = 2 * self.state.fault_tolerance_count;
+
         let difference3 = sys_time2.duration_since(sys_time1);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-        println!("init time spent: {:?}", difference3);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("init time spent: {:?}", difference3);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
         if partial_sig_count != threshold as usize {
             return PhaseState::ContinueExecute(send_query);
         }
 
         println!("Leader has collected 2 * f + 1 Vote!");
-        
-        let partial_sigs = self.log.get_partial_signatures_by_message_hash(&prepare_msg_hash);
-        
+
+        let partial_sigs = self
+            .log
+            .get_partial_signatures_by_message_hash(&prepare_msg_hash);
+
         let signature = self
             .keypair
             .as_ref()
@@ -439,9 +458,9 @@ impl BasicHotstuffProtocol {
             .combine_partial_signatures(partial_sigs);
         let sys_time3 = SystemTime::now();
         let difference = sys_time3.duration_since(sys_time2);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-        println!("Combine time spent: {:?}", difference);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("Combine time spent: {:?}", difference);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
         let mut prepare_qc = QC::new(PREPARE, vote.view_num, &vote.block);
         prepare_qc.set_signature(&signature);
@@ -462,9 +481,9 @@ impl BasicHotstuffProtocol {
         let sys_time4 = SystemTime::now();
 
         let difference = sys_time4.duration_since(sys_time3);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-        println!("Vote Prepare time spent: {:?}", difference);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("Vote Prepare time spent: {:?}", difference);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
         return PhaseState::ContinueExecute(send_query);
     }
@@ -478,20 +497,20 @@ impl BasicHotstuffProtocol {
         let mut send_query = VecDeque::new();
         println!("*********************** Get the PreCommit *********************************");
         if let None = pre_commit.justify {
-            eprintln!("【PreCommit】: Not found QC.");
+            // eprintln!("【PreCommit】: Not found QC.");
             return PhaseState::ContinueExecute(send_query);
         };
         let justify = pre_commit.justify.clone().unwrap();
 
         if let None = justify.signature {
-            eprintln!("【PreCommit】: Not found signature.");
+            // eprintln!("【PreCommit】: Not found signature.");
             return PhaseState::ContinueExecute(send_query);
         }
         let signature = justify.signature.clone().unwrap();
 
         // match QC
         if justify.msg_type != PREPARE || justify.view_num != self.state.view {
-            eprintln!("【PreCommit】: QC is invalid.");
+            // eprintln!("【PreCommit】: QC is invalid.");
             return PhaseState::ContinueExecute(send_query);
         }
         // verify signature
@@ -502,7 +521,7 @@ impl BasicHotstuffProtocol {
             .expect("Keypair is not found!")
             .threshold_verify(&signature, prepare_msg_hash.as_bytes())
         {
-            eprintln!("【PreCommit】: Signature is invalid.");
+            // eprintln!("【PreCommit】: Signature is invalid.");
             return PhaseState::ContinueExecute(send_query);
         }
 
@@ -535,9 +554,9 @@ impl BasicHotstuffProtocol {
             let sys_time2 = SystemTime::now();
 
             let difference = sys_time2.duration_since(sys_time1);
-            println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-            println!("Handle Precommit time spent: {:?}", difference);
-            println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+            // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+            // println!("Handle Precommit time spent: {:?}", difference);
+            // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
             return PhaseState::ContinueExecute(send_query);
         } else {
@@ -560,7 +579,7 @@ impl BasicHotstuffProtocol {
             &vote.partial_signature.clone().unwrap(),
             precommit_msg_hash.as_bytes(),
         ) {
-            eprintln!("Partial signature is invalid!");
+            // eprintln!("Partial signature is invalid!");
             return PhaseState::ContinueExecute(send_query);
         }
 
@@ -570,16 +589,19 @@ impl BasicHotstuffProtocol {
             &vote.partial_signature.clone().unwrap(),
         );
 
-        let partial_sig_count =
-            self.log.get_partial_signatures_count_by_message_hash(&precommit_msg_hash);
-        let threshold = 2 * self.state.fault_tolerance_count + 1;
+        let partial_sig_count = self
+            .log
+            .get_partial_signatures_count_by_message_hash(&precommit_msg_hash);
+        let threshold = 2 * self.state.fault_tolerance_count;
         if partial_sig_count != threshold as usize {
             return PhaseState::ContinueExecute(send_query);
         }
 
         println!("Leader has collected 2 * f + 1 Vote!");
 
-        let partial_sigs = self.log.get_partial_signatures_by_message_hash(&precommit_msg_hash);
+        let partial_sigs = self
+            .log
+            .get_partial_signatures_by_message_hash(&precommit_msg_hash);
         let signature = self
             .keypair
             .as_ref()
@@ -606,9 +628,9 @@ impl BasicHotstuffProtocol {
         let sys_time2 = SystemTime::now();
 
         let difference = sys_time2.duration_since(sys_time1);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-        println!("Vote Precommit time spent: {:?}", difference);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("Vote Precommit time spent: {:?}", difference);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
         return PhaseState::ContinueExecute(send_query);
     }
@@ -618,20 +640,20 @@ impl BasicHotstuffProtocol {
         println!("*********************** Get the Commit ************************************");
         let mut send_query = VecDeque::new();
         if let None = commit.justify {
-            eprintln!("【Commit】: Not found QC.");
+            // eprintln!("【Commit】: Not found QC.");
             return PhaseState::ContinueExecute(send_query);
         };
         let justify = commit.justify.clone().unwrap();
 
         if let None = justify.signature {
-            eprintln!("【Commit】: Not found signature.");
+            // eprintln!("【Commit】: Not found signature.");
             return PhaseState::ContinueExecute(send_query);
         }
         let signature = justify.signature.clone().unwrap();
 
         // match QC
         if justify.msg_type != PRE_COMMIT || justify.view_num != self.state.view {
-            eprintln!("【Commit】: QC is invalid.");
+            // eprintln!("【Commit】: QC is invalid.");
             return PhaseState::ContinueExecute(send_query);
         }
         // verify signature
@@ -642,7 +664,7 @@ impl BasicHotstuffProtocol {
             .expect("Keypair is not found!")
             .threshold_verify(&signature, precommit_msg_hash.as_bytes())
         {
-            eprintln!("【Commit】: Signature is invalid.");
+            // eprintln!("【Commit】: Signature is invalid.");
             return PhaseState::ContinueExecute(send_query);
         }
 
@@ -675,9 +697,9 @@ impl BasicHotstuffProtocol {
             let sys_time2 = SystemTime::now();
 
             let difference = sys_time2.duration_since(sys_time1);
-            println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-            println!("Handle Commit time spent: {:?}", difference);
-            println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+            // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+            // println!("Handle Commit time spent: {:?}", difference);
+            // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
             return PhaseState::ContinueExecute(send_query);
         } else {
@@ -698,7 +720,7 @@ impl BasicHotstuffProtocol {
             &vote.partial_signature.clone().unwrap(),
             commit_msg_hash.as_bytes(),
         ) {
-            eprintln!("Partial signature is invalid!");
+            // eprintln!("Partial signature is invalid!");
             return PhaseState::ContinueExecute(send_query);
         }
 
@@ -708,15 +730,19 @@ impl BasicHotstuffProtocol {
             &vote.partial_signature.clone().unwrap(),
         );
 
-        let partial_sig_count = self.log.get_partial_signatures_count_by_message_hash(&commit_msg_hash);
-        let threshold = 2 * self.state.fault_tolerance_count + 1;
+        let partial_sig_count = self
+            .log
+            .get_partial_signatures_count_by_message_hash(&commit_msg_hash);
+        let threshold = 2 * self.state.fault_tolerance_count;
         if partial_sig_count != threshold as usize {
             return PhaseState::ContinueExecute(send_query);
         }
 
         println!("Leader has collected 2 * f + 1 Vote!");
 
-        let partial_sigs = self.log.get_partial_signatures_by_message_hash(&commit_msg_hash);
+        let partial_sigs = self
+            .log
+            .get_partial_signatures_by_message_hash(&commit_msg_hash);
         let signature = self
             .keypair
             .as_ref()
@@ -764,9 +790,9 @@ impl BasicHotstuffProtocol {
         let sys_time2 = SystemTime::now();
 
         let difference = sys_time2.duration_since(sys_time1);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-        println!("Vote Commit time spent: {:?}", difference);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("Vote Commit time spent: {:?}", difference);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
         return PhaseState::Complete(request, send_query);
     }
@@ -777,20 +803,20 @@ impl BasicHotstuffProtocol {
         println!("*********************** Get the Decide ************************************");
         let decide_clone = decide.clone();
         if let None = decide.justify {
-            eprintln!("【Decide】: Not found QC.");
+            // eprintln!("【Decide】: Not found QC.");
             return PhaseState::ContinueExecute(send_query);
         };
         let justify = decide.justify.clone().unwrap();
 
         if let None = justify.signature {
-            eprintln!("【Decide】: Not found signature.");
+            // eprintln!("【Decide】: Not found signature.");
             return PhaseState::ContinueExecute(send_query);
         }
         let signature = justify.signature.clone().unwrap();
 
         // match QC
         if justify.msg_type != COMMIT || justify.view_num != self.state.view {
-            eprintln!("【Decide】: QC is invalid.");
+            // eprintln!("【Decide】: QC is invalid.");
             return PhaseState::ContinueExecute(send_query);
         }
         // verify signature
@@ -801,7 +827,7 @@ impl BasicHotstuffProtocol {
             .expect("Keypair is not found!")
             .threshold_verify(&signature, commit_msg_hash.as_bytes())
         {
-            eprintln!("【Decide】: Signature is invalid.");
+            // eprintln!("【Decide】: Signature is invalid.");
             return PhaseState::ContinueExecute(send_query);
         }
 
@@ -832,9 +858,9 @@ impl BasicHotstuffProtocol {
         let sys_time2 = SystemTime::now();
 
         let difference = sys_time2.duration_since(sys_time1);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
-        println!("Handle Decide time spent: {:?}", difference);
-        println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
+        // println!("Handle Decide time spent: {:?}", difference);
+        // println!("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^");
 
         return PhaseState::Complete(request, send_query);
     }
@@ -842,16 +868,11 @@ impl BasicHotstuffProtocol {
     pub fn next_view(&mut self) {
         self.state.view = self.state.view + 1;
     }
-
-    pub fn view_timeout_stop(&mut self) {
-        println!("timeout stop");
-        self.state.current_view_timeout = self.state.tf;
-        self.view_timeout_stop_notify.notify_one();
-    }
 }
 
 impl ProtocolBehaviour for BasicHotstuffProtocol {
     fn init_timeout_notify(&mut self, timeout_notify: Arc<Notify>) {
+        println!("配置超时notify");
         self.view_timeout_notify = timeout_notify;
     }
 
@@ -921,15 +942,17 @@ impl ProtocolBehaviour for BasicHotstuffProtocol {
                 self.storage_tbls_key(PeerId::from_bytes(&current_peer_id).expect("msg"), &msg);
             }
             MessageType::ConsensusNodePKsInfo(msg) => {
-                println!("Received ConsensusNodePKsInfo!");
-                let info: HashMap<Vec<u8>, ConsensusNodePKInfo> =
-                    coder::deserialize_for_bytes(&msg);
-                self.consensus_node_pks = info.clone();
+                if peer_id.unwrap().to_bytes() != current_peer_id {
+                    println!("Received ConsensusNodePKsInfo!");
+                    let info: HashMap<Vec<u8>, ConsensusNodePKInfo> =
+                        coder::deserialize_for_bytes(&msg);
+                    self.consensus_node_pks = info.clone();
 
-                return self.storage_consensus_node_pk(
-                    &info,
-                    PeerId::from_bytes(&current_peer_id).expect("msg"),
-                );
+                    return self.storage_consensus_node_pk(
+                        &info,
+                        PeerId::from_bytes(&current_peer_id).expect("msg"),
+                    );
+                }
             }
         }
         let mut queue = VecDeque::new();
@@ -950,12 +973,12 @@ impl ProtocolBehaviour for BasicHotstuffProtocol {
             MessageType::Request(_) => 0,
             MessageType::NewView(_) => 0,
             MessageType::Prepare(_) => 1,
-            MessageType::Commit(_) => 3,
-            MessageType::PreCommit(_) => 2,
+            MessageType::Commit(_) => 5,
+            MessageType::PreCommit(_) => 3,
             MessageType::Decide(_) => 0,
-            MessageType::PrepareVote(_) => 1,
-            MessageType::CommitVote(_) => 3,
-            MessageType::PreCommitVote(_) => 2,
+            MessageType::PrepareVote(_) => 2,
+            MessageType::CommitVote(_) => 6,
+            MessageType::PreCommitVote(_) => 4,
             MessageType::End(_) => 0,
             MessageType::TBLSKey(_) => 0,
             MessageType::ConsensusNodePKsInfo(_) => 0,
@@ -1013,11 +1036,12 @@ impl ProtocolBehaviour for BasicHotstuffProtocol {
         hash_map.insert(6, vote.clone());
 
         self.phase_map.insert(1, String::from("Prepare"));
-        self.phase_map.insert(2, String::from("Vote"));
+        self.phase_map.insert(2, String::from("PrepareVote"));
         self.phase_map.insert(3, String::from("PreCommit"));
-        self.phase_map.insert(4, String::from("Vote"));
+        self.phase_map.insert(4, String::from("PreCommitVote"));
         self.phase_map.insert(5, String::from("Commit"));
-        self.phase_map.insert(6, String::from("Vote"));
+        self.phase_map.insert(6, String::from("CommitVote"));
+        println!("map:{:?}",hash_map.clone());
         hash_map
     }
 
@@ -1041,11 +1065,13 @@ impl ProtocolBehaviour for BasicHotstuffProtocol {
     }
 
     fn view_timeout_handler(&mut self, current_peer_id: PeerId) -> PhaseState {
-        println!("OK?");
+        println!("Tiemout");
+        self.state.timeout_flag = true;
         let current_view_timeout = self.state.current_view_timeout;
-        self.state.current_view_timeout = current_view_timeout * 2;
+        self.state.current_view_timeout = current_view_timeout * 1;
         // send newview
         let msg = self.newview(&current_peer_id.to_bytes());
+
         return msg;
     }
 
@@ -1055,6 +1081,7 @@ impl ProtocolBehaviour for BasicHotstuffProtocol {
 
     fn protocol_reset(&mut self) {
         self.view_timeout_stop();
+        println!("enter reset");
         self.state.current_id = Vec::new();
         self.state.current_request = Request {
             cmd: "None".to_string(),
@@ -1067,19 +1094,137 @@ impl ProtocolBehaviour for BasicHotstuffProtocol {
         self.state.prepare_qc = None;
         self.state.locked_qc = None;
         self.state.commit_qc = None;
-        self.state.tf = 10;
-        self.state.current_view_timeout = 10;
-        self.keypair = None;
-        self.consensus_nodes = HashMap::new();
-        self.pk_consensus_nodes = HashMap::new();
+        self.state.tf = 3;
+        self.state.current_view_timeout = 3;
+        // self.keypair = None;
+        // self.consensus_nodes = HashMap::new();
+        // self.pk_consensus_nodes = HashMap::new();
 
         self.log.message_signatures = HashMap::new();
         self.log.newviews = HashMap::new();
-        self.consensus_node_pks = HashMap::new();
+        // self.consensus_node_pks = HashMap::new();
         self.peer_id = PeerId::random().to_string();
-
-        self.view_timeout_notify = Arc::new(Notify::new());
+        // self.view_timeout_notify = Arc::new(Notify::new());
         self.view_timeout_stop_notify = Arc::new(Notify::new());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json, Map};
+    use utils::{crypto::threshold_blsttc::{combine_partial_signatures, generate_keypair_set, sign}, coder::serialize_into_json_str};
+
+    use super::*;
+
+    #[test]
+    fn generate_fault_signature() {
+        let s = "{\"msg_type\":{\"Prepare\":{\"block\":{\"cmd\":\"Request_613\",\"parent_hash\":\"b04687607a14561cc395eaf83090c3e33e32274cfaec761e7185842ed96a1397\"},\"from_peer_id\":[165,12,13,97,245,3,217,66,199,238,151,32,58,180,127,96,34,118,16,147,234,138,86,189,144,110,106,86,13,8,64,98,204,107,71,134,254,114,144,37,210,220,152,155,0,218,37,214,18,211,14,67,226,179,55,136,12,238,0,255,128,251,107,179,177,238,55,179,152,157,61,19,86,197,24,196,63,242,43,195,227,185,139,212,156,30,205,210,204,57,10,16,222,54,164,172],\"view_num\":13},\"view_num\":14}}}"
+        .to_string();
+        let data = s.into_bytes();
+        // let s: ConsensusMessage = coder::deserialize_for_json_bytes(&data);
+
+        // kleys&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+        let t_sig_keys = generate_keypair_set(3, 9);
+        let msg = "test";
+
+        let nodes = t_sig_keys.keypair_shares;
+
+        let n = nodes.clone();
+
+        let sigs: HashMap<_, _> = n
+            .into_iter()
+            .map(|(i, sk, _)| (i, sign(&sk, msg)))
+            .collect();
+
+        println!("=============Partial Verification===========");
+
+        for (i, _, pk) in nodes.into_iter() {
+            println!("{}: {}", i, pk.verify(&sigs.get(&i).unwrap(), msg));
+        }
+
+        // sigs.remove(&2);
+        // sigs.remove(&5);
+        // sigs.remove(&7);
+        // sigs.remove(&0);
+        // sigs.remove(&3);
+        // sigs.remove(&6);
+        for (i, sig) in &sigs {
+            println!("{}|sig:[{:?}]|", i, &sig);
+        }
+
+        let sys_time1 = SystemTime::now();
+        let com_sig = combine_partial_signatures(&t_sig_keys.pk_set, &sigs);
+
+        let block = Block {
+            cmd: "test".to_string(),
+            parent_hash: "test".to_string(),
+        };
+        let qc = QC {
+            msg_type: 1,
+            view_num: 1,
+            block: block.clone(),
+            signature: Some(com_sig.clone()),
+        };
+        let prepare = Prepare {
+            view_num: 1,
+            block: block.clone(),
+            justify: Some(qc.clone()),
+            from_peer_id: vec![1],
+        };
+        let data = ConsensusMessage {
+            msg_type: MessageType::Prepare(prepare),
+        };
+
+        let msg = coder::serialize_into_json_bytes(&data);
+        // println!("{}", serial_data);
+        // let s: ConsensusMessage = coder::deserialize_for_json_bytes(&serial_data.as_bytes());
+
+        let mut parsed: Value = serde_json::from_slice(&msg).unwrap();
+        println!("parsed:\n {:?}", parsed.clone());
+        let value =&parsed["msg_type"]["Prepare"]["justify"]["signature"];
+        let new_value = match value.clone() {
+            
+            Value::Array(data) => {
+                let mut v = Vec::new();
+                let data = vec![
+                            165, 12, 13, 97, 245, 3, 217, 66, 199, 238, 151, 32, 58, 180, 127, 96,
+                            34, 118, 16, 147, 234, 138, 86, 189, 144, 110, 106, 86, 13, 8, 64, 98,
+                            204, 107, 71, 134, 254, 114, 144, 37, 210, 220, 152, 155, 0, 218, 37,
+                            214, 18, 211, 14, 67, 226, 179, 55, 136, 12, 238, 0, 255, 128, 251,
+                            107, 179, 177, 238, 55, 179, 152, 157, 61, 19, 86, 197, 24, 196, 63,
+                            242, 43, 195, 227, 185, 139, 212, 156, 30, 205, 210, 204, 57, 10, 16,
+                            222, 54, 164, 172
+                        ];
+                        for i in data {
+                            v.insert(v.len(), i as u64);
+                        }
+                        
+                        json!(v)
+            },
+           
+            Value::Bool(b) => {
+                json!(!b)
+            }
+            Value::Number(n) => {
+                json!(n.as_u64().unwrap() + 99 as u64)
+            }
+            Value::String(_) => {
+                json!("ErrorString")
+            }
+            Value::Object(o) => {
+                json!(o)
+            }
+            Value::Null => {
+                json!(null)
+            },
+        };
+        parsed["msg_type"]["Prepare"]["justify"]["signature"] = new_value;
+        let map: Map<String, Value> = parsed.as_object().unwrap().clone();
+        println!("new Parsed:\n {:?}", parsed);
+        let map_json_str = serialize_into_json_str(&json!(map));
+        println!("After motify json: {:?}", map_json_str);
+        let s = map_json_str.into_bytes();
+        let s: ConsensusMessage = coder::deserialize_for_json_bytes(&s);
     }
 
     

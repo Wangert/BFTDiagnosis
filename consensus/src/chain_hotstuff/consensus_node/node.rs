@@ -8,7 +8,7 @@ use libp2p::{
     PeerId,
 };
 use network::{
-    p2p_protocols::{base_behaviour::OutEvent, unicast::behaviour::UnicastEvent},
+    p2p_protocols::{base_behaviour::OutEvent, unicast::behaviour::UnicastEvent, floodsub::{topic::Topic, behaviour::FloodsubEvent}},
     peer::Peer,
 };
 
@@ -45,6 +45,17 @@ impl Node {
 
     pub async fn network_peer_start(&mut self) -> Result<(), Box<dyn Error>> {
         self.network_peer.swarm_start(true).await?;
+        // let topic = IdentTopic::new("Consensus");
+        // self.network_peer.network_swarm_mut().behaviour_mut().gossipsub.subscribe(&topic);
+
+        
+        let topic = Topic::new("Consensus");
+        self.network_peer.network_swarm_mut().behaviour_mut().floodsub.subscribe(topic);
+        let peer = self.id.clone();
+        self.network_peer.network_swarm_mut().behaviour_mut().floodsub.add_node_to_partial_view(peer);
+        
+        
+
         self.executor.proposal_state_check();
         self.message_handler_start().await;
 
@@ -57,6 +68,7 @@ impl Node {
         } else {
             panic!("【network_peer】: Not build swarm")
         };
+        
 
         // Kick it off
         loop {
@@ -72,6 +84,7 @@ impl Node {
                     let request_info = self.request_buffer_map.get(request_hash).unwrap();
 
                     // handle request
+                    println!("Handle_request");
                     self.executor.message_handler(&self.id.to_bytes(), &request_info.0).await;
                 },
                 _ = self.executor.view_timeout_notify.notified() => {
@@ -91,10 +104,12 @@ impl Node {
                                 let leader_id = PeerId::from_bytes(&self.executor.state.current_leader).expect("Leader peer id error.");
                                 swarm.behaviour_mut().unicast.send_message(&leader_id, msg);
                             } else {
-                                let topic = IdentTopic::new("Consensus");
-                                if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), msg) {
-                                eprintln!("Publish message error:{:?}", e);
-                                }
+                                // let topic = IdentTopic::new("Consensus");
+                                // if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), msg) {
+                                // eprintln!("Publish message error:{:?}", e);
+                                // }
+                                let topic = Topic::new("Consensus");
+                                swarm.behaviour_mut().floodsub.publish(topic,msg);
                             }
                         }
                         MessageType::Vote(_) => {
@@ -121,10 +136,12 @@ impl Node {
                             println!("Current request buffer map: {:?}", self.request_buffer_map);
                         }
                         _ => {
-                            let topic = IdentTopic::new("Consensus");
-                            if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), msg) {
-                                eprintln!("Publish message error:{:?}", e);
-                            }
+                            // let topic = IdentTopic::new("Consensus");
+                            // if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), msg) {
+                            //     eprintln!("Publish message error:{:?}", e);
+                            // }
+                            let topic = Topic::new("Consensus");
+                            swarm.behaviour_mut().floodsub.publish(topic,msg);
                         }
                     }
 
@@ -139,6 +156,43 @@ impl Node {
                         message_id: _id,
                         message,
                     })) => {
+                        let msg: Message = coder::deserialize_for_bytes(&message.data);
+                        match msg.msg_type {
+                            MessageType::Request(request) => {
+                                println!("Received Request!");
+                                let request_hash = get_request_hash(&request);
+                                let count = self.request_buffer.len();
+                                self.request_buffer.insert(count, request_hash.clone());
+                                //self.request_buffer.push(request_hash.clone());
+                                self.request_buffer_map.insert(request_hash, (message.data, count));
+
+                                let mode_value = *self.executor.state.mode.lock().await;
+                                match mode_value {
+                                    Mode::Do(n) => {
+                                        *self.executor.state.mode.lock().await = Mode::Do(n + 1);
+                                    }
+                                    Mode::Done(n) => {
+                                        *self.executor.state.mode.lock().await = Mode::Done(n + 1);
+                                    }
+                                    Mode::NotIsLeader(n) => {
+                                        *self.executor.state.mode.lock().await = Mode::NotIsLeader(n + 1);
+                                    }
+                                    Mode::Init => {
+                                        *self.executor.state.mode.lock().await = Mode::NotIsLeader(1);
+                                    }
+                                }
+                            }
+                            _ => {
+                                self.executor.message_handler(&self.id.to_bytes(), &message.data).await;
+                            }
+                        }
+                    }
+                    SwarmEvent::Behaviour(OutEvent::Floodsub(
+                        FloodsubEvent::Message(message)
+                    )) => {
+                        let dt = chrono::Local::now();
+                        let timestamp: i64 = dt.timestamp_millis();
+                        println!("收到一个广播消息，时间：{}",timestamp);
                         let msg: Message = coder::deserialize_for_bytes(&message.data);
                         match msg.msg_type {
                             MessageType::Request(request) => {
@@ -174,6 +228,7 @@ impl Node {
                             println!("Discovered {:?}", &peer);
                             swarm.behaviour_mut().unicast.add_node_to_partial_view(&peer);
                             swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer);
+                            swarm.behaviour_mut().floodsub.add_node_to_partial_view(peer.clone());
                             self.connected_nodes.insert(peer.to_string(), peer.clone());
                         }
                         //println!("Connected_nodes: {:?}", self.connected_nodes.lock().await);
@@ -183,6 +238,7 @@ impl Node {
                             if !swarm.behaviour_mut().mdns.has_node(&peer) {
                                 swarm.behaviour_mut().unicast.remove_node_from_partial_view(&peer);
                                 swarm.behaviour_mut().gossipsub.remove_explicit_peer(&peer);
+                                swarm.behaviour_mut().floodsub.remove_node_from_partial_view(&peer);
                                 self.connected_nodes.remove(&peer.to_string());
                             }
                         }

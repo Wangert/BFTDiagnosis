@@ -44,6 +44,10 @@ impl ConsensusNode {
 
     pub async fn network_peer_start(&mut self) -> Result<(), Box<dyn Error>> {
         self.network_peer.swarm_start(true).await?;
+        let topic = IdentTopic::new("Consensus");
+        self.network_peer.network_swarm_mut().behaviour_mut().gossipsub.subscribe(&topic);
+        let topic1 = IdentTopic::new("DistributePK");
+        self.network_peer.network_swarm_mut().behaviour_mut().gossipsub.subscribe(&topic1);
         self.executor.timeout_check_start();
         self.message_handler_start().await;
 
@@ -110,6 +114,7 @@ impl ConsensusNode {
                         }
                         MessageType::PublicKey(_) => {
                             let topic = IdentTopic::new("DistributePK");
+                            println!("收到分发密钥请求");
                             if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), msg) {
                                 eprintln!("Publish message error:{:?}", e);
                             }

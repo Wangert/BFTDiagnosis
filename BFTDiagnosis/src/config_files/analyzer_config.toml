@@ -1,10 +1,10 @@
 [network]
-ip_addr = "10.177.40.71"
+ip_addr = "192.168.100.12"
 # ip_addr = "192.168.140.204"
 ip_port = 11116
 
 [execution]
-performance_duration = 15000
-performance_internal = 2000
+performance_duration = 10000
+performance_internal = 10000
 crash_duration = 30000
-malicious_duration = 20000
+malicious_duration = 2000

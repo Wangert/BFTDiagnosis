@@ -64,7 +64,7 @@ impl Node {
                 line = stdin.next_line() => {
                     if let Ok(Some(command)) = line {
                         println!("{}", command);
-                        if command.eq("DistributeKey") {
+                        if command.eq("key") {
                             let distribute_tbls_key_vec = generate_bls_keys(&self.connected_nodes, self.executor.state.fault_tolerance_count);
 
                             println!("key count: {}", distribute_tbls_key_vec.len());
@@ -89,9 +89,11 @@ impl Node {
                                 let db_value = coder::serialize_into_bytes(&consensus_node_pk_info);
                                 self.executor.db.write(&db_key, &db_value);
                                 consensus_node_pks.insert(db_key, consensus_node_pk_info);
+                                println!("Unicast OK!");
                             }
 
                             let msg = Message { msg_type: MessageType::ConsensusNodePKsInfo(consensus_node_pks) };
+                            println!("msg");
                             let serialized_msg = coder::serialize_into_bytes(&msg);
                             let topic = IdentTopic::new("Consensus");
                             if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), serialized_msg) {
@@ -103,7 +105,10 @@ impl Node {
                             let msg_vec = create_requests(count);
 
                             for msg in msg_vec {
-                                println!("Request: {:?}", msg);
+                                
+                                let dt = chrono::Local::now();
+                                let timestamp: i64 = dt.timestamp_millis();
+                                println!("Request: {:?}，发送时间为：{}", msg,timestamp); 
                                 let serialized_msg = serialize_into_bytes(&msg);
                                 let topic = IdentTopic::new("Consensus");
                                 if let Err(e) = swarm.behaviour_mut().gossipsub.publish(topic.clone(), serialized_msg) {

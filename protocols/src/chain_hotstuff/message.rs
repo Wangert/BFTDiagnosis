@@ -12,7 +12,7 @@ pub enum MessageType {
     Vote(Vote),
     End(String),
     TBLSKey(TBLSKey),
-    ConsensusNodePKsInfo(HashMap<Vec<u8>, ConsensusNodePKInfo>),
+    ConsensusNodePKsInfo(Vec<u8>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -32,7 +32,7 @@ pub struct ConsensusMessage {
 pub struct Block {
     pub cmd: String,
     pub parent_hash: String,
-    pub justify: Box<Option<QC>>,
+    // pub justify: Box<Option<QC>>,
 }
 
 // #[derive(Debug, Serialize, Deserialize, Clone)]

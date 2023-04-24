@@ -16,3 +16,5 @@ serde = { version = "1.0.136", features = ["derive"]}
 libp2p = "0.43.0"
 blsttc = "7.0.0"
 chrono = "0.4.19"
+rand = "0.8.5"
+serde_json = "1.0.85"

@@ -126,6 +126,7 @@ pub enum PhaseState {
     OverMessage(Option<Request>, VecDeque<SendType>),
     ContinueExecute(VecDeque<SendType>),
     Complete(Request, VecDeque<SendType>),
+    Complex(Option<Request>, VecDeque<SendType>)
 }
 
 #[derive(Debug, Clone)]

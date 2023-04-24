@@ -3,6 +3,7 @@ use utils::crypto::eddsa::EdDSAPublicKey;
 use components::message::Request;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum MessageType {
+    StartView(u64,Request),
     Request(Request),
     PrePrepare(PrePrepare),
     Prepare(Prepare),
@@ -89,11 +90,9 @@ pub struct CheckPoint {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ViewChange {
     pub new_view: u64,
-    // pub latest_stable_checkpoint: u64,
-    // pub latest_stable_checkpoint_messages: Vec<CheckPoint>,
-    pub proof_messages: ProofMessages,
     pub from_peer_id: Vec<u8>,
     pub signature: String,
+    pub request: Vec<u8>
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

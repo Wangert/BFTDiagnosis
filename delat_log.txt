@@ -1,0 +1,16 @@
+|Throughput:46
+Throughput:46
+Throughput:44
+Throughput:45
+|Throughput:32
+Throughput:32
+Throughput:31
+Throughput:32
+|Throughput:11
+Throughput:11
+Throughput:10
+Throughput:11
+|Throughput:12
+Throughput:12
+Throughput:12
+Throughput:12

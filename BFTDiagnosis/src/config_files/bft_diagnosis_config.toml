@@ -1,9 +1,16 @@
 # Test Option Configuration
+
+[consensus]
+batch_size = 30
+
+[deploy]
+delay = 0
+
 [throughput]
 enable = false
 
 [latency]
-enable = true
+enable = false
 
 [scalability]
 enable = false
@@ -16,8 +23,8 @@ enable = false
 max = 10
 
 [malicious]
-enable = false
-number_of_phase = 2
+enable = true
+number_of_phase = 3
 # optional behaviours:
 # LeaderFeignDeath
 # LeaderSendAmbiguousMessage
@@ -25,8 +32,14 @@ number_of_phase = 2
 # ReplicaNodeConspireForgeMessages
 behaviours = [
     # "LeaderFeignDeath", 
-    # "LeaderSendAmbiguousMessage", 
+    "LeaderSendAmbiguousMessage", 
     # "LeaderDelaySendMessage",
-    "LeaderSendDuplicateMessage", 
-    # "ReplicaNodeConspireForgeMessages"
+    # "LeaderSendDuplicateMessage", 
+    # "ReplicaNodeConspireForgeMessages",
+    # "ReplicaFeignDeath",
+    # "ReplicaSendAmbiguousMessage",
+    # "ReplicaDelaySendMessage",
+    # "ReplicaSendDuplicateMessage",
     ]
+
+

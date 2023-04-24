@@ -44,7 +44,7 @@ pub fn generate_bls_keys(
 pub fn create_requests(size: usize) -> Vec<Message> {
     let mut msg_vec = vec![];
     for _ in 0..size {
-        let cmd = format!("{}{}", "wangjitao", Local::now().timestamp_subsec_nanos());
+        let cmd = format!("{}{}", "cmd:", Local::now().timestamp_subsec_nanos());
         let request = Request { cmd };
 
         let msg = Message {

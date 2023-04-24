@@ -10,5 +10,5 @@ chrono = "0.4.19"
 serde = { version = "1.0.136", features = ["derive"]}
 utils = { path = "../utils"}
 storage = { path="../storage" }
-leveldb = "0.8.5"
+# leveldb = "0.8.5"
 bigint = "4"

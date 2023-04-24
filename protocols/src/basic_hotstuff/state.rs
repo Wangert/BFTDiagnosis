@@ -18,6 +18,7 @@ pub struct State {
     pub current_view_timeout: u64,
     pub current_request: Request,
     pub current_id: Vec<u8>,
+    pub timeout_flag: bool
 }
 
 
@@ -35,13 +36,14 @@ impl State {
             prepare_qc: None,
             locked_qc: None,
             commit_qc: None,
-            tf: 10,
-            current_view_timeout: 10,
+            tf: 5,
+            current_view_timeout: 3,
             
             current_id: Vec::new(),
             current_request: Request {
                 cmd: "None".to_string(),
             },
+            timeout_flag: false
         }
     }
 }

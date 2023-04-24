@@ -6,6 +6,8 @@ use utils::{coder, crypto::threshold_blsttc::{self, TBLSKey}};
 // use super::message::{Block, Request};
 use crate::chain_hotstuff::message::{Block};
 use components::message::{Request, DistributeTBLSKey};
+
+use super::message::QC;
 pub const GENERIC: u8 = 1;
 // pub const PREPARE: u8 = 1;
 // pub const PRE_COMMIT: u8 = 2;
@@ -81,4 +83,75 @@ pub fn generate_bls_keys(
 
 //     msg_vec
 // }
+
+// pub fn handle_qc(qc: Option<QC>) -> Option<QC> {
+//     let final_qc = match qc {
+//         Some(qc1) => {
+//             let data = qc1.clone();
+//             match *qc1.block.justify {
+//                 Some(qc2) => {
+//                     match *qc2.block.justify {
+//                         Some(qc3) => {
+//                             match *qc3.block.justify {
+//                                 Some(qc4) => {
+//                                     let mut temp = data;
+//                                     temp.block.justify.unwrap().block.justify.unwrap().block.justify = Box::new(None);
+//                                     return Some(temp.clone());
+//                                 },
+//                                 None => return Some(qc1),
+//                             }
+//                         },
+//                         None => {
+//                             return Some(qc1);
+//                         },
+//                     }
+//                 },
+//                 None => {
+//                     return Some(qc1);
+//                 },
+//             }
+//         },
+//         None => {
+            
+//         },
+//     };
+//     None
+    
+// }
+
+// pub fn handle_qc(qc: Option<QC>) -> Option<QC> {
+//     let qc1 = if let Some(qc) = qc {
+//         qc
+//     }
+//     else {
+//         return None
+//     };
+//     let qc2 = if let Some(qc) = *qc1.block.justify {
+//         qc
+//     }
+//     else {
+//         return Some(qc1.clone());
+//     };
+//     let qc3 = if let Some(qc) = *qc2.block.justify {
+//         qc
+//     }
+//     else {
+//         return Some(qc1.clone());
+//     };
+//     let qc4 = if let Some(qc) = *qc3.block.justify {
+//         qc
+//     }
+//     else {
+//         return Some(qc1.clone());
+//     };
+//     let qc5 = if let Some(qc) = &*qc4.block.justify {
+//         return Some(qc4.clone());
+//     }
+//     else {
+//         return Some(qc4.clone());
+//     };
+   
+// }
+
+
 

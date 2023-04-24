@@ -13,6 +13,7 @@ use crate::cmd::controller_cmd::protocol_start_cmd;
 use crate::cmd::controller_cmd::query_protocol_phases_cmd;
 use crate::cmd::controller_cmd::send_consensus_requests_cmd;
 use crate::cmd::controller_cmd::start_test_cmd;
+use crate::cmd::controller_cmd::test;
 use crate::commons::CommandCompleter;
 use crate::commons::SubCmd;
 
@@ -59,7 +60,8 @@ lazy_static! {
         .subcommand(configure_consensus_node_cmd())
         .subcommand(query_protocol_phases_cmd())
         .subcommand(print_protocol_phases_cmd())
-        .subcommand(send_consensus_requests_cmd());
+        .subcommand(send_consensus_requests_cmd())
+        .subcommand(test());
     static ref CMD_SUBCMDS: Vec<SubCmd> = subcommands();
 }
 

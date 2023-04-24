@@ -6,6 +6,11 @@ pub fn init_cmd() -> Command<'static> {
         .about("init")
 }
 
+pub fn test() -> Command<'static> {
+    clap::Command::new("test")
+        .about("test")
+}
+
 pub fn print_unfinished_test_items_cmd() -> Command<'static> {
     clap::Command::new("printUnfinishedTestItems")
         .about("printUnfinishedTestItems")

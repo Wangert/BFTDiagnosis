@@ -53,12 +53,13 @@ impl Log {
                 high_qc = generic.justify.clone();
             }
         }
-
+        println!("High_qc is: {:?}",high_qc.clone());
         high_qc
+        
     }
 
     // record vote partial signature
-    pub fn record_messgae_partial_signature(
+    pub fn record_message_partial_signature(
         &mut self,
         msg_hash: &str,
         keypair_num: u64,
